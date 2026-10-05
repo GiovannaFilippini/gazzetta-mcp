@@ -9,7 +9,7 @@ from selectolax.lexbor import LexborHTMLParser as HTMLParser
 
 from ..models import Atto, Serie
 from ._util import decode, eli_id, split_trailing_code, squash
-from .text import clean_text, extract_pre
+from .text import clean_text, extract_export, extract_pre
 from .tipo import detect_tipo
 
 _GU_NUMBER = re.compile(r"\(GU[^)]*?n\.\s*(\d+)\s+del", re.IGNORECASE)
@@ -43,7 +43,8 @@ def parse_atto(
 
     titolo = " - ".join(p for p in (tipo_line, descrizione) if p)
     tipo = detect_tipo(tipo_line) or detect_tipo(titolo)
-    body = clean_text(extract_pre(testo), raw=raw_text) if testo else ""
+    raw_body = (extract_export(testo) or extract_pre(testo)) if testo else ""
+    body = clean_text(raw_body, raw=raw_text) if raw_body else ""
     return Atto(
         codice=codice,
         serie=serie,

@@ -42,6 +42,34 @@ def extract_pre(testo_html: bytes | str) -> str:
     return text if text.strip() else ""
 
 
+def extract_export(testo_html: bytes | str) -> str:
+    """Return the unmodified text of a whole-act export page ("" if it is not one).
+
+    The export page (``/atto/stampa/...``) holds one <pre> per article or annex inside
+    ``div.wrapper_pre``, with the headings of chapters and sections in ``span.dentro``.
+    Blocks are joined in page order; the title and "Vigente al" boxes are left out.
+    """
+    html = testo_html if isinstance(testo_html, str) else decode(testo_html)
+    if "wrapper_pre" not in html:
+        return ""
+    wrapper = HTMLParser(html).css_first("div.wrapper_pre")
+    if wrapper is None:
+        return ""
+    blocks: list[str] = []
+    for node in wrapper.css("span.dentro, pre"):
+        if node.tag == "span":
+            for br in node.css("br"):
+                br.replace_with("\n")
+            heading = "\n".join(line.strip() for line in node.text().splitlines() if line.strip())
+            if heading:
+                blocks.append(heading)
+        else:
+            text = node.text(deep=True, strip=False)
+            if text.strip():
+                blocks.append(text.strip("\n"))
+    return "\n\n".join(blocks)
+
+
 class _Hyphens:
     """Knows which words appear whole in the document, to prove a split word."""
 

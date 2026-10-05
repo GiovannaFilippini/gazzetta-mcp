@@ -7,6 +7,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- `leggi_atto` returned only the first article of acts with several articles (the GU text page
+  shows one article at a time). It now uses the site's export form to get every article and
+  annex in one request. Acts already read are cached with the partial text: clear the cache
+  with `gazzetta-mcp --svuota-cache --si`.
+
 ### Added
 
 - `cerca_concorsi` and `cerca` now work from an empty cache: they load the table of contents
