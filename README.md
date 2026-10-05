@@ -1,12 +1,22 @@
 # gazzetta-mcp
 
-Unofficial, local [MCP](https://modelcontextprotocol.io) server to consult and search the
-Italian *Gazzetta Ufficiale della Repubblica Italiana*. Free, open source (MIT).
+Unofficial, local [MCP](https://modelcontextprotocol.io) server that lets your AI assistant
+consult the Italian *Gazzetta Ufficiale*. Free, open source (MIT). No codes or dates needed.
+
+English | [Italiano](#italiano)
+
+**What you can ask your assistant:**
+
+- "Are there public competitions for nurses in Lombardy?"
+- "What came out in the Gazzetta today?"
+- "Give me the text of the decree on ..., summarised in three points."
+- "Give me the Normattiva link for law 241/1990."
+
+Results can be partial: the server sees recent publications and what it has already looked up,
+not the whole archive, and it says so. Then see [Install](#install).
 
 > **Status: pre-release.** The package is **not yet published on PyPI**. Install commands below
 > that use PyPI work only once it is published; see "From source" for what works today.
-
-English | [Italiano](#italiano)
 
 ## Disclaimer
 
@@ -105,6 +115,21 @@ All settings are environment variables, read in `src/gazzetta_mcp/config.py`.
 | `GAZZETTA_MCP_FEED_TTL` | `900` | Feed cache lifetime in seconds |
 | `GAZZETTA_MCP_USER_AGENT` | `gazzetta-mcp/<version> (unofficial open source client)` | User-Agent sent with requests |
 
+## Troubleshooting
+
+First run `gazzetta-mcp --prova` (or `uvx gazzetta-mcp --prova`): it checks Python, local search,
+the cache folder and the connection (one request) and tells you what to fix.
+
+- **The assistant does not see the tool**: restart the assistant completely after adding the
+  server, check the command in its configuration (see above), and run `--prova`.
+- **Empty results**: try other or fewer keywords, or ask what came out recently. Results can be
+  partial (see above); check the official site if something is missing.
+- **The first search is slow**: the first request builds the local cache. Later ones are faster.
+- **Where is the cache?** In `<cache dir>/gazzetta-mcp/cache.sqlite3` (see `GAZZETTA_MCP_CACHE_PATH`
+  above; on Windows `%LOCALAPPDATA%\gazzetta-mcp`).
+- **Clear the cache**: close the assistant, then run `gazzetta-mcp --svuota-cache --si`
+  (without `--si` it only shows what would be deleted).
+
 ## Development
 
 ```bash
@@ -126,8 +151,19 @@ sources (see [docs/fonti.md](docs/fonti.md)).
 
 ## Italiano
 
-Server [MCP](https://modelcontextprotocol.io) locale, **non ufficiale**, per consultare e cercare
-nella *Gazzetta Ufficiale della Repubblica Italiana*. Gratuito e open source (licenza MIT).
+Server [MCP](https://modelcontextprotocol.io) locale, **non ufficiale**, che permette al tuo
+assistente AI di consultare la *Gazzetta Ufficiale*. Gratuito e open source (licenza MIT).
+Non servono codici ne' date.
+
+**Cosa puoi chiedere all'assistente:**
+
+- "Ci sono concorsi per infermiere in Lombardia?"
+- "Cosa e' uscito oggi in Gazzetta?"
+- "Dammi il testo del decreto su ..., riassunto in tre punti."
+- "Dammi il link Normattiva della legge 241/1990."
+
+I risultati possono essere parziali: il server vede le pubblicazioni recenti e cio' che ha gia'
+consultato, non tutto l'archivio, e lo dice. Poi vai a "Installazione".
 
 > **Stato: pre-release.** Il pacchetto **non e' ancora pubblicato su PyPI**: i comandi di
 > installazione da PyPI funzioneranno solo dopo la pubblicazione. Vedi "Da sorgente".
@@ -185,6 +221,22 @@ uvx --from git+https://github.com/<owner>/gazzetta-mcp gazzetta-mcp
 - Altri client: avvia `gazzetta-mcp` come server stdio.
 
 Le variabili d'ambiente `GAZZETTA_MCP_*` sono descritte nella tabella "Configuration" sopra.
+
+### Se qualcosa non funziona
+
+Lancia prima `gazzetta-mcp --prova` (o `uvx gazzetta-mcp --prova`): controlla Python, la ricerca
+locale, la cartella della cache e il collegamento (una sola richiesta) e dice cosa sistemare.
+
+- **L'assistente non vede lo strumento**: riavvia del tutto l'assistente dopo aver aggiunto il
+  server, controlla il comando nella configurazione e lancia `--prova`.
+- **Nessun risultato**: prova parole chiave diverse o meno numerose, oppure chiedi cosa e' uscito
+  di recente. I risultati possono essere parziali; se manca qualcosa controlla il sito ufficiale.
+- **La prima ricerca e' lenta**: la prima richiesta costruisce la memoria locale (cache); le
+  successive sono piu' veloci.
+- **Dove sta la cache**: in `<cartella cache>/gazzetta-mcp/cache.sqlite3` (su Windows
+  `%LOCALAPPDATA%\gazzetta-mcp`), modificabile con `GAZZETTA_MCP_CACHE_PATH`.
+- **Svuotare la cache**: chiudi l'assistente e lancia `gazzetta-mcp --svuota-cache --si` (senza
+  `--si` mostra soltanto cosa verrebbe cancellato).
 
 ### Sviluppo
 

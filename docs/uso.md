@@ -4,6 +4,15 @@ Esempi di richieste da scrivere al tuo assistente dopo aver collegato `gazzetta-
 Ricorda: i testi sono **non ufficiali e non autentici**; fa fede solo la Gazzetta Ufficiale.
 Le richieste partono solo quando le chiedi, con limite di frequenza e cache locale.
 
+Non devi conoscere codici ne' date: scrivi cosa cerchi con parole tue, l'assistente sceglie lo
+strumento e ricorda i codici dei risultati gia' mostrati. I risultati possono essere **parziali**
+(pubblicazioni recenti e quanto gia' consultato, non l'intero archivio): l'assistente dovrebbe
+dirlo; in caso di dubbio controlla il sito ufficiale.
+
+Qualcosa non va? Lancia `gazzetta-mcp --prova` dal terminale: controlla l'installazione e dice
+cosa fare. Per svuotare la memoria locale: `gazzetta-mcp --svuota-cache --si` (vedi README,
+"Se qualcosa non funziona").
+
 ## ultime_pubblicazioni(serie, giorni)
 
 - "Mostrami cosa e' stato pubblicato nella Serie Generale negli ultimi 3 giorni."
@@ -21,7 +30,7 @@ Se il numero non si trova, usa prima `ultime_pubblicazioni`.
 - "Leggimi l'atto con codice redazionale 26A05182."
 - "Riassumi in tre punti il testo dell'atto 26A05182 e indica il link ufficiale."
 
-Se l'atto non e' ancora in cache serve la data di pubblicazione (AAAA-MM-GG): si ricava con `ultime_pubblicazioni` o `sommario`. I testi molto lunghi sono divisi in pagine (parametro `offset`).
+La data non serve: viene ricordata dai risultati gia' visti, oppure cercata tra le ultime pubblicazioni. Per un atto non recente che non e' mai comparso in un risultato, cercalo prima con parole del titolo (`cerca`, `ultime_pubblicazioni`). I testi molto lunghi sono divisi in pagine (parametro `offset`).
 
 ## cerca_concorsi(parole_chiave, regione)
 

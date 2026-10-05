@@ -56,13 +56,25 @@ async def test_errors_are_short_italian_tool_errors(client):
         await client.call_tool("sommario", {"data": "ieri"})
     with pytest.raises(ToolError, match="Non riesco a interpretare"):
         await client.call_tool("rimando_normattiva", {"atto": "boh"})
-    with pytest.raises(ToolError, match="serve la data"):
-        await client.call_tool("leggi_atto", {"codice": "26A05182"})
+    with pytest.raises(ToolError, match="Non riesco a risalire"):
+        await client.call_tool("leggi_atto", {"codice": "26A99999"})
 
 
 async def test_instructions_mention_disclaimer(client):
     assert "NON ufficiale" in client.instructions
     assert client.server_info.name == "gazzetta-mcp"
+
+
+async def test_instructions_guide_the_assistant(client):
+    text = client.instructions
+    assert "NON chiedere mai" in text and "parziali" in text and "cicli" in text
+
+
+async def test_tool_descriptions_say_when_to_use_them(client):
+    for tool in await client.list_tools():
+        assert "Usalo" in tool.description, tool.name
+    tools = {t.name: t for t in await client.list_tools()}
+    assert "parziale" in tools["cerca"].description
 
 
 async def test_lifespan_closes_owned_service(monkeypatch):
