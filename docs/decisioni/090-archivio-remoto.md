@@ -18,13 +18,13 @@
 ## Fatti verificati (2026-10-05)
 
 - Testo HTML degli atti presente almeno dal 1950 (legge del 1950-01-02, codice `049U0961`); 1946-1949 non verificati.
-- Il testo si carica **un articolo per richiesta**: `caricaArticoloDefault` restituisce il primo, gli altri sono elencati da `/atto/vediMenuHTML` (link `caricaArticolo?...&art.idArticolo=N`). Un atto di 18 articoli costa circa 20 richieste.
+- `caricaArticoloDefault` restituisce **solo il primo articolo**; gli altri sono elencati da `/atto/vediMenuHTML`, il cui modulo di esportazione (`POST /atto/stampa/<serie>/originario`) restituisce l'atto intero in una pagina (PR #11). Costo per atto: scheda + menu + esportazione = 3 richieste, qualunque sia il numero di articoli; 2 per gli atti senza articoli nel menu (scheda + pagina singola).
 - La GU non offre API ne' open data (solo RSS). Le API ufficiali sono quelle di Normattiva.
 
 ## Acquisizione dalla GU (regole nostre)
 
 - Limite di frequenza basso; user-agent identificativo con un contatto; recupero all'indietro in orari di basso traffico; mai riscaricare cio' che e' gia' archiviato (gli atti sono immutabili); su errori, 429 o 5xx ci si ferma e si riprova piu' tardi con attesa crescente.
-- **Durata:** con un articolo per richiesta e 1 richiesta al secondo, tutta la GU e' nell'ordine di milioni di richieste, cioe' mesi. Da misurare per anno (numeri, atti, articoli) prima di fissare la frequenza.
+- **Durata:** circa 3 richieste per atto. A 1 richiesta al secondo sono circa 10.000 atti al giorno: un anno di GU richiede giorni, l'intero archivio settimane o pochi mesi. Da misurare per anno (numeri e atti) prima di fissare la frequenza.
 - **Controllo del parser:** il sito puo' cambiare le pagine senza preavviso. Il cron verifica ogni giorno su pagine campione che il parser estragga ancora i campi attesi e manda un avviso se fallisce o se un numero risulta vuoto.
 
 ## Hosting (proposta, da riverificare)
