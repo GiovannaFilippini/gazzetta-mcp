@@ -423,6 +423,18 @@ class SqliteCache:
                 atto.testo,
             )
 
+    def find_codice(self, codice: str) -> tuple[Serie, date] | None:
+        """Series and date of an editorial code seen in any cached feed, sommario or act."""
+        with self._lock:
+            r = self._conn.execute(
+                "SELECT serie, data FROM docs WHERE codice = ? "
+                "ORDER BY CASE kind WHEN 'atto' THEN 0 WHEN 'voce' THEN 1 ELSE 2 END LIMIT 1",
+                (codice,),
+            ).fetchone()
+        if r is None:
+            return None
+        return Serie(r["serie"]), date.fromisoformat(r["data"])
+
     # -- search ----------------------------------------------------------------------------
 
     def _index(
