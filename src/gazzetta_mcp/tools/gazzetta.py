@@ -21,7 +21,7 @@ _EXPECTED = (Exception,)
 def _fail(exc: Exception) -> ToolError:
     """Map any exception to a short Italian ToolError (no tracebacks to the client)."""
     message = user_message(exc)
-    if message == "Errore interno imprevisto.":
+    if message.startswith("Errore interno imprevisto"):
         log.exception("Unexpected error in a tool", exc_info=exc)
     return ToolError(message)
 
@@ -40,20 +40,31 @@ def register(mcp: FastMCP, get_service: ServiceGetter) -> None:
 
     @mcp.tool
     async def ultime_pubblicazioni(serie: str = "SG", giorni: int = 7) -> dict[str, Any]:
-        """Ultime pubblicazioni della Gazzetta Ufficiale (feed RSS ufficiale).
+        """Elenca le ultime cose uscite in Gazzetta Ufficiale (feed ufficiale).
 
-        serie: SG (Serie Generale), S1 (Corte Costituzionale), S2 (Unione Europea),
-        S3 (Regioni), S4 (Concorsi ed esami), S5 (Contratti pubblici), P2 (Parte II).
-        giorni: quanti giorni indietro includere (1-90). Il feed contiene solo i numeri recenti.
+        Usalo quando l'utente chiede le novita': "cosa e' uscito oggi in Gazzetta", "ci sono
+        nuovi decreti questa settimana", "ultimi concorsi pubblicati". Non servono date o
+        codici. Ogni voce ha un codice (es. 26A05182) che poi basta passare a leggi_atto.
+        Copertura parziale: il feed contiene solo i numeri piu' recenti; per giorni piu'
+        lontani usa sommario o cerca.
+
+        serie: SG (Serie Generale, la piu' comune), S1 (Corte Costituzionale), S2 (Unione
+        Europea), S3 (Regioni), S4 (Concorsi ed esami), S5 (Contratti pubblici), P2 (Parte II).
+        giorni: quanti giorni indietro includere (1-90).
         """
         return await _guard(get_service().ultime_pubblicazioni(serie, giorni))
 
     @mcp.tool
     async def sommario(data: str, serie: str = "SG") -> dict[str, Any]:
-        """Sommario di un numero della Gazzetta Ufficiale, con codice, titolo, emettitore,
-        rubrica e link di ogni atto, piu' il link al numero e al PDF.
+        """Elenco completo degli atti di un numero della Gazzetta Ufficiale di un certo giorno.
 
-        data: giorno di pubblicazione, formato AAAA-MM-GG. serie: SG, S1-S5, P2.
+        Usalo quando l'utente indica un giorno: "cosa e' uscito il 2 ottobre", "sommario della
+        Gazzetta del 15 settembre". Se l'utente non indica un giorno usa invece
+        ultime_pubblicazioni. Restituisce codice, titolo, emettitore e link di ogni atto, piu'
+        il link al numero e al PDF.
+
+        data: giorno di pubblicazione, formato AAAA-MM-GG (converti tu le date dette a
+        parole). serie: SG (predefinita), S1-S5, P2.
         """
         return await _guard(get_service().sommario(data, serie))
 
@@ -61,29 +72,43 @@ def register(mcp: FastMCP, get_service: ServiceGetter) -> None:
     async def leggi_atto(
         codice: str, data: str | None = None, serie: str | None = None, offset: int = 0
     ) -> dict[str, Any]:
-        """Testo di un atto dal codice redazionale (es. 26A05182), ripulito per la lettura.
+        """Legge il testo di un atto della Gazzetta Ufficiale, ripulito per la lettura.
 
-        data (AAAA-MM-GG) e serie servono per costruire il link ufficiale: se l'atto e' gia' in
-        cache o nel feed la data si ricava da sola, altrimenti va indicata (la si trova con
-        ultime_pubblicazioni, sommario o cerca). I testi lunghi sono divisi in pagine: usa
-        offset con il valore 'prossimo_offset' del risultato precedente per continuare.
+        Usalo quando l'utente vuole il testo di un atto: "dammi il testo del decreto X",
+        "riassumimi questo decreto", "cosa dice l'atto 26A05182". Il codice (es. 26A05182) lo
+        trovi nei risultati di ultime_pubblicazioni, sommario, cerca o cerca_concorsi: non
+        chiederlo all'utente. La data e la serie di solito NON servono: vengono ricordate dai
+        risultati gia' visti o cercate tra le ultime pubblicazioni. Se l'atto non e' recente e
+        non e' mai comparso in un risultato, cercalo prima con cerca o ultime_pubblicazioni.
+
+        I testi lunghi sono divisi in pagine: per continuare richiama con offset uguale al
+        'prossimo_offset' del risultato precedente. Il testo non e' ufficiale: cita sempre il
+        link nel campo 'link'.
         """
         return await _guard(get_service().leggi_atto(codice, data, serie, offset))
 
     @mcp.tool
     async def cerca_concorsi(parole_chiave: str, regione: str | None = None) -> dict[str, Any]:
-        """Cerca bandi di concorso (4a Serie Speciale) per parole chiave ed eventualmente regione.
+        """Cerca bandi di concorso pubblico (4a Serie Speciale, Concorsi ed esami).
 
-        Copre SOLO la cache locale e l'ultimo feed S4: non esplora l'archivio della Gazzetta.
+        Usalo per richieste come "concorsi per infermiere in Lombardia", "bandi per istruttore
+        amministrativo", "ci sono concorsi per insegnanti in Toscana". Basta qualche parola
+        chiave (profilo, ente, citta') e, se l'utente la nomina, la regione. Non chiedere date
+        o codici. I risultati possono essere parziali: riguardano le pubblicazioni recenti e
+        quanto e' gia' stato consultato, non tutto l'archivio; dillo all'utente e suggerisci il
+        link ufficiale per verificare. Per leggere un bando usa leggi_atto con il suo codice.
         """
         return await _guard(get_service().cerca_concorsi(parole_chiave, regione))
 
     @mcp.tool
     async def rimando_normattiva(atto: str) -> dict[str, Any]:
-        """Costruisce il link permanente a Normattiva (testo vigente) per un atto.
+        """Costruisce il link a Normattiva (testo vigente) di una legge o di un decreto.
 
-        atto: estremi in testo libero, ad esempio 'legge 5 agosto 2026, n. 140',
-        'DL 144/2026' o un codice redazionale GU. Solo link: nessun testo viene scaricato.
+        Usalo per richieste come "link Normattiva della legge 241/1990", "dove leggo il testo
+        aggiornato del DL 144/2026". Restituisce solo il link: nessun testo viene scaricato.
+
+        atto: gli estremi in parole, ad esempio 'legge 5 agosto 2026, n. 140', 'DL 144/2026',
+        'DPR 26 ottobre 1972 n. 633' oppure un codice di un atto gia' trovato.
         """
 
         async def run() -> dict[str, Any]:
@@ -100,10 +125,18 @@ def register(mcp: FastMCP, get_service: ServiceGetter) -> None:
         al: str | None = None,
         limite: int = 20,
     ) -> dict[str, Any]:
-        """Ricerca a testo pieno nella cache locale (atti, sommari e feed gia' consultati).
+        """Cerca per parole chiave tra gli atti della Gazzetta Ufficiale gia' conosciuti.
 
-        Filtri facoltativi: serie (SG, S1-S5, P2), tipo (es. DECRETO, LEGGE, AVVISO),
-        dal / al (AAAA-MM-GG), limite (massimo 100). Non interroga il sito della Gazzetta.
+        Usalo quando l'utente descrive un argomento senza codici: "decreti sul bonus
+        edilizia", "atti che parlano di semplificazione", "qualcosa sulla caccia in Veneto".
+        Mette i risultati in ordine di pertinenza; da un risultato prendi il codice per
+        leggi_atto. Copertura parziale: cerca solo tra i contenuti che il server ha gia'
+        incontrato (feed recenti, sommari e atti consultati), non nell'intero archivio: se non
+        trova nulla prova ultime_pubblicazioni o sommario e poi riprova, e di' all'utente che i
+        risultati possono essere incompleti.
+
+        Filtri facoltativi: serie (SG, S1-S5, P2), tipo (es. DECRETO, LEGGE, AVVISO), dal / al
+        (AAAA-MM-GG), limite (massimo 100).
         """
 
         async def run() -> dict[str, Any]:

@@ -163,7 +163,8 @@ async def test_cerca_empty_cache_then_results():
 
 def test_user_message_never_leaks():
     assert "Riprova" in user_message(GuHttpError("boom http://x"))
-    assert user_message(RuntimeError("secret")) == "Errore interno imprevisto."
+    msg = user_message(RuntimeError("secret"))
+    assert msg.startswith("Errore interno imprevisto") and "secret" not in msg
 
 
 async def test_aclose_closes_resources():
