@@ -12,6 +12,7 @@ Verifica eseguita il 2026-10-05 con richieste reali (poche, distanziate, user-ag
 | PDF di un numero | `/eli/gu/AAAA/MM/GG/NUMERO/SERIE/pdf` | OK (200, application/pdf) |
 | Scheda di un atto | `/eli/id/AAAA/MM/GG/CODICE/SERIE` | OK (200) |
 | Testo di un atto | `/atto/<serie_url>/caricaArticoloDefault/originario?atto.dataPubblicazioneGazzetta=AAAA-MM-GG&atto.codiceRedazionale=CODICE&atto.tipoProvvedimento=TIPO` | OK (200). Il testo e' dentro un `<pre>` |
+| Elenco dei numeri degli ultimi 30 giorni | `/30giorni/serie_generale`, `/30giorni/concorsi` | OK (200). Ogni numero ha link con `dataPubblicazioneGazzetta=AAAA-MM-GG&numeroGazzetta=NN`; gli altri nomi di serie non sono stati verificati (decisione 070) |
 | Feed RSS | `/rss/SG`, `/rss/S1` ... `/rss/S5`, `/rss/P2` | OK (200, application/rss+xml) |
 
 ### Differenze rispetto allo schema "da documentazione di terzi"
