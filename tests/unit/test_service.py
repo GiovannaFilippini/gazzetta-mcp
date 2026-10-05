@@ -58,12 +58,9 @@ async def test_sommario_bad_input():
         await service.sommario("2026-12-31", "SG")  # after the latest issue
 
 
-async def test_leggi_atto_needs_date_then_works_after_feed():
+async def test_leggi_atto_without_date_looks_up_the_latest_feed():
     service, seen, cache, _ = make_service()
-    with pytest.raises(ServiceError, match="ultime_pubblicazioni"):
-        await service.leggi_atto("26A05182")
-    await service.ultime_pubblicazioni("SG", 7)  # date now known from the cached feed
-    r = await service.leggi_atto("26A05182")
+    r = await service.leggi_atto("26A05182")  # date found in the SG feed, user never gives it
     check(r)
     assert r["data"] == "2026-10-03" and r["serie"] == "SG"
     assert r["testo"] and r["tipo"] == "DECRETO" and not r["troncato"]
@@ -72,6 +69,26 @@ async def test_leggi_atto_needs_date_then_works_after_feed():
     again = await service.leggi_atto("26a05182")
     assert again["dalla_cache"] and len(seen) == n
     assert cache.get_atto("26A05182") is not None
+    assert sum("/rss/" in str(r.url) for r in seen) == 1
+
+
+async def test_leggi_atto_remembers_codes_seen_in_the_feed():
+    service, seen, *_ = make_service()
+    await service.ultime_pubblicazioni("SG", 7)
+    n = len(seen)
+    await service.leggi_atto("26A05182")
+    assert not any("/rss/" in str(r.url) for r in seen[n:])  # no extra lookup
+
+
+async def test_leggi_atto_unknown_date_gives_advice_after_bounded_lookups():
+    service, seen, *_ = make_service()
+    with pytest.raises(ServiceError, match="cerca"):
+        await service.leggi_atto("26A99999")  # letter A -> only the SG feed is tried
+    assert sum("/rss/" in str(r.url) for r in seen) == 1
+    seen.clear()
+    with pytest.raises(ServiceError, match="parola"):
+        await service.leggi_atto("26X99999")  # unknown letter -> SG then S4, never more
+    assert sum("/rss/" in str(r.url) for r in seen) <= 2
 
 
 async def test_leggi_atto_date_known_from_sommario():
@@ -102,9 +119,9 @@ async def test_leggi_atto_s4_inferred_from_letter():
 
 async def test_leggi_atto_errors():
     service, *_ = make_service()
-    with pytest.raises(ServiceError, match="non e' valido"):
+    with pytest.raises(ServiceError, match="non sembra valido"):
         await service.leggi_atto("bad code!")
-    with pytest.raises(ServiceError, match="non trovato"):
+    with pytest.raises(ServiceError, match="Non trovo l'atto"):
         await service.leggi_atto("26A99999", data="2026-10-03")
 
 
@@ -145,7 +162,7 @@ async def test_cerca_empty_cache_then_results():
 
 
 def test_user_message_never_leaks():
-    assert "riprova" in user_message(GuHttpError("boom http://x"))
+    assert "Riprova" in user_message(GuHttpError("boom http://x"))
     assert user_message(RuntimeError("secret")) == "Errore interno imprevisto."
 
 

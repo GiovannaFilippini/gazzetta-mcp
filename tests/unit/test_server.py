@@ -56,8 +56,8 @@ async def test_errors_are_short_italian_tool_errors(client):
         await client.call_tool("sommario", {"data": "ieri"})
     with pytest.raises(ToolError, match="Non riesco a interpretare"):
         await client.call_tool("rimando_normattiva", {"atto": "boh"})
-    with pytest.raises(ToolError, match="serve la data"):
-        await client.call_tool("leggi_atto", {"codice": "26A05182"})
+    with pytest.raises(ToolError, match="Non riesco a risalire"):
+        await client.call_tool("leggi_atto", {"codice": "26A99999"})
 
 
 async def test_instructions_mention_disclaimer(client):
