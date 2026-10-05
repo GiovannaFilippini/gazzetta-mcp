@@ -141,6 +141,7 @@ def register(mcp: FastMCP, get_service: ServiceGetter) -> None:
         limite: int = 20,
         aggiorna: bool = True,
         solo_vigenti: bool = True,
+        periodo: str | None = None,
     ) -> dict[str, Any]:
         """Cerca per parole chiave tra gli atti della Gazzetta Ufficiale, anche a cache vuota.
 
@@ -157,13 +158,17 @@ def register(mcp: FastMCP, get_service: ServiceGetter) -> None:
         risultati hanno origine 'normattiva' e per leggerli con leggi_atto va passata anche
         la data. La risposta dice quali date e quali archivi sono stati usati: la copertura
         puo' restare parziale (avvisi e concorsi vecchi non ci sono), dillo all'utente. Con
-        aggiorna=false non si fa rete.
+        periodo='anno' la cache locale della Serie Generale viene estesa all'indietro, 24
+        numeri per chiamata, fino a un anno (anche per atti non normativi): la risposta dice
+        a che punto e', ripeti la ricerca per proseguire. Con aggiorna=false non si fa rete.
 
         Filtri facoltativi: serie (SG, S1-S5, P2), tipo (es. DECRETO, LEGGE, AVVISO),
         dal / al (AAAA-MM-GG), limite (massimo 100).
         """
         return await _guard(
-            get_service().cerca(testo, serie, tipo, dal, al, limite, aggiorna, solo_vigenti)
+            get_service().cerca(
+                testo, serie, tipo, dal, al, limite, aggiorna, solo_vigenti, periodo
+            )
         )
 
 

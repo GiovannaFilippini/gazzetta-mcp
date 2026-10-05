@@ -30,6 +30,7 @@ from .sources.gu import (
     NumeroNotFoundError,
     UnsupportedSerieError,
     resolve_numero,
+    sommario_matches,
 )
 from .sources.normattiva import NormattivaLinkBuilder
 from .sources.ricerca_gu import RicercaGuClient
@@ -107,6 +108,8 @@ class Limits:
     recent_issues_s4: int = 9
     recent_issues_sg: int = 24  # about 30 days of the Serie Generale
     max_recent_issues: int = 30  # hard cap of network fetches of issues per call
+    year_days: int = 365  # target of periodo='anno'
+    older_block: int = 24  # older issues loaded per call with periodo='anno'
     concorsi_window_days: int = 30  # a call is considered open this long after publication
 
 
@@ -503,6 +506,72 @@ class GazzettaService:
             sommari.append(som)
         return RecentIssues(serie, sommari, requests, notes, today)
 
+    async def _extend_year(self, serie: Serie, max_issues: int | None = None) -> str:
+        """Load one block of older issues, going back from the oldest one in the cache.
+
+        Issue numbers are sequential within a year, so the number before ``n`` is ``n - 1``;
+        only the date is guessed (1 to 4 days earlier) and every page is verified. The block is
+        capped (``Limits.older_block``) and a call that finds nothing to do costs nothing.
+        Returns the progress sentence for the answer.
+        """
+        today = self._today()
+        limit = today - timedelta(days=self._limits.year_days)
+        cached = self._cached_issues(serie, limit, today)
+        if not cached:
+            return "Periodo esteso all'anno: nessun numero recente in cache da cui partire."
+        block = max_issues or self._limits.older_block
+        current = cached[-1]  # oldest one we have
+        added = 0
+        problem = ""
+        while added < block and current.data > limit:
+            numero = current.numero - 1
+            if numero < 1:
+                problem = "arrivato al primo numero dell'anno: i numeri dell'anno prima non vengono ricostruiti"
+                break
+            found: Sommario | None = None
+            for back in range(1, 5):
+                day = current.data - timedelta(days=back)
+                known = self._cache.get_sommario(day, serie)
+                if known is not None and known.numero == numero:
+                    found = known
+                    break
+                try:
+                    page = await self._client.get_sommario(day, serie, numero)
+                except GuNotFoundError:
+                    continue
+                except GuError as exc:
+                    problem = f"errore di rete ({user_message(exc)})"
+                    break
+                if not sommario_matches(page.content, day, numero):
+                    continue
+                parsed = self._parser.parse_sommario(page.content, serie, day, numero, self._base)
+                if parsed.voci:
+                    self._cache.put_sommario(parsed)
+                    found = parsed
+                    added += 1
+                break
+            if problem:
+                break
+            if found is None:
+                problem = (
+                    f"numero {numero} non trovato nei 4 giorni prima del {current.data.isoformat()}"
+                )
+                break
+            current = found
+        reached = current.data
+        if reached <= limit:
+            return (
+                f"Cache locale della {serie.value} completa fino al {reached.isoformat()} "
+                f"(un anno): aggiunti {added} numeri."
+            )
+        missing = (reached - limit).days
+        text = (
+            f"Cache locale della {serie.value} estesa fino al {reached.isoformat()}: aggiunti "
+            f"{added} numeri, mancano circa {missing} giorni per coprire un anno. Ripeti la "
+            "ricerca con periodo='anno' per proseguire."
+        )
+        return text + (f" (Interrotto: {problem}.)" if problem else "")
+
     # --- 4. cerca_concorsi ----------------------------------------------------------
 
     async def cerca_concorsi(
@@ -632,6 +701,7 @@ class GazzettaService:
         merged = list(hits)
         seen = {h.codice for h in merged}
         used: list[str] = []
+        repealed: set[str] = set()
         sources = [
             (self._archivio, "atti normativi dal sito Normattiva (open data), per titolo"),
             (self._ricerca_gu, "ricerca avanzata del sito della Gazzetta Ufficiale"),
@@ -640,16 +710,24 @@ class GazzettaService:
             if source is None or serie not in (None, Serie.SG):
                 continue
             try:
-                found, total, extra = await source.cerca(testo, filtri)
+                found, total, extra, abrogati = await source.cerca(testo, filtri)
             except GuError as exc:
                 note.append(f"Ricerca nell'archivio non riuscita ({label}): {user_message(exc)}")
                 continue
             note.extend(extra)
+            repealed |= abrogati
             used.append(f"{label} ({total} atti trovati, mostrati i piu' pertinenti)")
             for h in found:
                 if h.codice not in seen:
                     seen.add(h.codice)
                     merged.append(h)
+        if filtri.solo_vigenti and repealed:
+            kept = [h for h in merged if h.origine != "cache" or h.codice not in repealed]
+            if len(kept) < len(merged):
+                note.append(
+                    f"Esclusi {len(merged) - len(kept)} atti della cache locale perche' abrogati."
+                )
+            merged = kept
         return merged[: filtri.limite], used
 
     # --- 6. cerca -------------------------------------------------------------------
@@ -664,6 +742,7 @@ class GazzettaService:
         limite: int = 20,
         aggiorna: bool = True,
         solo_vigenti: bool = True,
+        periodo: str | None = None,
     ) -> dict[str, Any]:
         if not (testo or "").strip():
             raise ServiceError("Indica il testo da cercare.")
@@ -677,6 +756,9 @@ class GazzettaService:
             limite=limite,
             solo_vigenti=solo_vigenti,
         )
+        anno = (periodo or "").strip().lower() in {"anno", "ultimo anno", "12 mesi"}
+        if (periodo or "").strip() and not anno and periodo.strip().lower() != "recenti":
+            raise ServiceError("Il periodo puo' essere 'recenti' (predefinito) oppure 'anno'.")
         loaded: list[RecentIssues] = []
         note: list[str] = []
         if aggiorna:
@@ -691,6 +773,8 @@ class GazzettaService:
                     )
             for r in loaded:
                 note.extend(r.notes)
+            if anno and Serie.SG in targets:
+                note.append(await self._extend_year(Serie.SG))
             if s is not None and not targets:
                 note.append(
                     f"L'aggiornamento automatico vale per SG e S4: per la serie {s.value} "

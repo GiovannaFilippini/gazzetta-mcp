@@ -41,6 +41,7 @@ async def test_lists_exactly_the_six_tools(client):
         "limite",
         "aggiorna",
         "solo_vigenti",
+        "periodo",
     }
     assert set(tools["leggi_atto"].input_schema["properties"]) >= {"codice", "data", "serie"}
 

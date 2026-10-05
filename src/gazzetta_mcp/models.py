@@ -129,6 +129,7 @@ class ArchiveResult(NamedTuple):
     hits: list[SearchHit]
     totale: int  # acts found by the archive before leaving out the repealed ones
     note: list[str]
+    abrogati: frozenset[str] = frozenset()  # codes of repealed acts that were found
 
 
 @dataclass(frozen=True)

@@ -177,7 +177,9 @@ class ArchivioClient:
         if skipped:
             note.append(f"Esclusi {skipped} atti abrogati.")
         hits.sort(key=lambda t: (-t[0], -t[1].data.toordinal()))
-        return ArchiveResult([h for _, h in hits[: filtri.limite]], total, note)
+        return ArchiveResult(
+            [h for _, h in hits[: filtri.limite]], total, note, frozenset(abrogati)
+        )
 
     def _gu_link(self, codice: str, data: date) -> str:
         base = self._settings.gu_base_url.rstrip("/")

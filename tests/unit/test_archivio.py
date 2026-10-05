@@ -63,7 +63,7 @@ def test_search_words_drop_stopwords():
 
 async def test_cerca_posts_one_request_and_ranks_by_matched_words():
     client, seen = make_client()
-    hits, total, note = await client.cerca("incentivi veicoli", SearchFilters(limite=10))
+    hits, total, note, _ = await client.cerca("incentivi veicoli", SearchFilters(limite=10))
     assert len(seen) == 1 and seen[0].method == "POST" and note == []
     body = json.loads(seen[0].content)
     assert body["titoloRicerca"] == "incentivi veicoli" and body["orderType"] == "recente"
@@ -87,7 +87,7 @@ async def test_solo_vigenti_leaves_out_repealed_acts():
     client, seen = make_client()
     everything, *_ = await client.cerca("incentivi veicoli", SearchFilters(limite=50))
     seen.clear()
-    hits, total, note = await client.cerca(
+    hits, total, note, _ = await client.cerca(
         "incentivi veicoli", SearchFilters(limite=50, solo_vigenti=True)
     )
     classes = [json.loads(r.content).get("classeProvvedimento") for r in seen]
@@ -100,7 +100,7 @@ async def test_solo_vigenti_leaves_out_repealed_acts():
 
 async def test_repealed_check_failure_keeps_hits_and_says_so():
     client, _ = make_client(repealed_status=500)
-    hits, _total, note = await client.cerca("incentivi", SearchFilters(solo_vigenti=True))
+    hits, _total, note, _ = await client.cerca("incentivi", SearchFilters(solo_vigenti=True))
     assert len(hits) == 5 and REPEALED_CODE in {h.codice for h in hits}
     assert any("abrogati" in n and "non sono riuscito" in n.lower() for n in note)
 
@@ -123,7 +123,7 @@ async def test_cerca_http_error_and_empty_query():
     client, seen = make_client(status=500)
     with pytest.raises(GuHttpError):
         await client.cerca("incentivi", SearchFilters())
-    assert tuple(await client.cerca("   ", SearchFilters())) == ([], 0, [])
+    assert tuple(await client.cerca("   ", SearchFilters())) == ([], 0, [], frozenset())
     assert len(seen) == 1
 
 

@@ -48,7 +48,7 @@ def make_client(status: int = 200):
 
 async def test_cerca_gets_the_form_then_posts_once():
     client, seen = make_client()
-    hits, total, _ = await client.cerca("incentivi per l'acquisto di autoveicoli", SearchFilters())
+    hits, total, *_ = await client.cerca("incentivi per l'acquisto di autoveicoli", SearchFilters())
     assert [r.method for r in seen] == ["GET", "POST"]
     assert seen[1].url.path == "/do/ricerca/atto/serie_generale/originario/0"
     assert "TS=1" in seen[1].headers.get("cookie", "")
@@ -62,7 +62,7 @@ async def test_cerca_errors_and_empty_query():
     client, _ = make_client(status=500)
     with pytest.raises(GuHttpError):
         await client.cerca("incentivi", SearchFilters())
-    assert tuple(await client.cerca("  ", SearchFilters())) == ([], 0, [])
+    assert tuple(await client.cerca("  ", SearchFilters())) == ([], 0, [], frozenset())
 
 
 async def test_service_uses_it_only_when_wired():
