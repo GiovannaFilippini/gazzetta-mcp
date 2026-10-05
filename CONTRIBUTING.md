@@ -5,7 +5,9 @@ Thanks for your interest in gazzetta-mcp. By participating you agree to follow t
 
 ## Ground rules
 
-This project queries public sites, so these rules are not negotiable:
+This project queries public sites. The source only requires the notice below; the other rules are
+our own choice for the local server and are not negotiable here (the planned remote archive has its
+own rules, see [decision 090](docs/decisioni/090-archivio-remoto.md)):
 
 - Requests only on user demand; **no bulk download**, no mirroring.
 - Keep the rate limit, the local cache and the identifying User-Agent.
