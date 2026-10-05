@@ -21,6 +21,7 @@ from .interfaces import ArchiveSearch, Cache, NormattivaLinker, Parser, SourceCl
 from .models import DISCLAIMER, Atto, SearchFilters, SearchHit, Serie, Sommario
 from .parsing import GuParser, ParseError
 from .regioni import normalize, normalizza_regione, regione_ente
+from .sources.archivio import ArchivioClient
 from .sources.gu import (
     GuClient,
     GuError,
@@ -30,7 +31,6 @@ from .sources.gu import (
     UnsupportedSerieError,
     resolve_numero,
 )
-from .sources.archivio import ArchivioClient
 from .sources.normattiva import NormattivaLinkBuilder
 
 # Feeds that are already cached are used for date lookups whatever their age.

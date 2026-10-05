@@ -3,9 +3,55 @@
 from __future__ import annotations
 
 STOPWORDS = frozenset(
-    "a ad al alla alle agli ai allo con da dal dalla dalle dei del della delle degli di e ed "
-    "gli i il in la le lo nel nella nelle nei negli o per su sul sulla sulle sui tra fra un "
-    "uno una l d".split()
+    [
+        "a",
+        "ad",
+        "al",
+        "alla",
+        "alle",
+        "agli",
+        "ai",
+        "allo",
+        "con",
+        "da",
+        "dal",
+        "dalla",
+        "dalle",
+        "dei",
+        "del",
+        "della",
+        "delle",
+        "degli",
+        "di",
+        "e",
+        "ed",
+        "gli",
+        "i",
+        "il",
+        "in",
+        "la",
+        "le",
+        "lo",
+        "nel",
+        "nella",
+        "nelle",
+        "nei",
+        "negli",
+        "o",
+        "per",
+        "su",
+        "sul",
+        "sulla",
+        "sulle",
+        "sui",
+        "tra",
+        "fra",
+        "un",
+        "uno",
+        "una",
+        "l",
+        "d",
+    ]
 )
 
 

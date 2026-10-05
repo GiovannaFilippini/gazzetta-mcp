@@ -95,8 +95,9 @@ class ArchivioClient:
         if data is None:
             await self._limiter.acquire()
             try:
-                response = await self._http.post(self._url, content=payload,
-                                                 headers={"Content-Type": "application/json"})
+                response = await self._http.post(
+                    self._url, content=payload, headers={"Content-Type": "application/json"}
+                )
             except httpx.HTTPError as exc:
                 raise GuHttpError(f"Normattiva search failed: {exc}") from exc
             if response.status_code != 200:

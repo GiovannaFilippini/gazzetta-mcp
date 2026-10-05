@@ -28,9 +28,7 @@ def _flag(raw: str | None, default: bool) -> bool:
 class Settings:
     gu_base_url: str = "https://www.gazzettaufficiale.it"
     normattiva_base_url: str = "https://www.normattiva.it"
-    normattiva_api_url: str = (
-        "https://api.normattiva.it/t/normattiva.api/bff-opendata/v1/api/v1"
-    )
+    normattiva_api_url: str = "https://api.normattiva.it/t/normattiva.api/bff-opendata/v1/api/v1"
     # Archive search through the Normattiva Open Data API (on by default, 1 request per search).
     archivio_normattiva: bool = True
     # Search form of the GU site (off by default: terms of use still to be confirmed with IPZS).
@@ -53,7 +51,9 @@ class Settings:
             normattiva_api_url=env("GAZZETTA_MCP_NORMATTIVA_API_URL", d.normattiva_api_url).rstrip(
                 "/"
             ),
-            archivio_normattiva=_flag(env("GAZZETTA_MCP_ARCHIVIO_NORMATTIVA"), d.archivio_normattiva),
+            archivio_normattiva=_flag(
+                env("GAZZETTA_MCP_ARCHIVIO_NORMATTIVA"), d.archivio_normattiva
+            ),
             ricerca_gu=_flag(env("GAZZETTA_MCP_RICERCA_GU"), d.ricerca_gu),
             requests_per_second=float(env("GAZZETTA_MCP_RPS", d.requests_per_second)),
             timeout_seconds=float(env("GAZZETTA_MCP_TIMEOUT", d.timeout_seconds)),

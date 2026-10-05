@@ -79,7 +79,7 @@ async def test_cerca_http_error_and_empty_query():
 
 
 async def test_service_merges_archive_hits_after_local_ones():
-    service, seen, cache, _ = make_service()
+    service, _seen, _cache, _ = make_service()
     client, archive_seen = make_client()
     service._archivio = client
     r = await service.cerca("incentivi veicoli")
