@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date
+
 import pytest
 
 from gazzetta_mcp.models import DISCLAIMER
@@ -108,17 +110,182 @@ async def test_leggi_atto_errors():
         await service.leggi_atto("26A99999", data="2026-10-03")
 
 
-async def test_cerca_concorsi_covers_only_cache_and_feed():
-    service, seen, *_ = make_service()
-    r = await service.cerca_concorsi("avviso")
+async def test_cerca_concorsi_cold_start_loads_recent_issues_within_the_cap():
+    service, seen, cache, _ = make_service()
+    r = await service.cerca_concorsi("infermiere", regione="lombardia")
     check(r)
-    assert "SOLO" in r["copertura"] and r["totale"] > 0
-    assert all(h["serie"] == "S4" for h in r["risultati"])
-    assert [q.url.path for q in seen] == ["/rss/S4"]  # no crawling
-    none = await service.cerca_concorsi("avviso", regione="Groenlandia")
-    assert none["totale"] == 0
-    with pytest.raises(ServiceError):
+    # 1 index + 8 issues listed by the index; nothing else, no crawling
+    paths = [q.url.path for q in seen]
+    assert paths[0] == "/30giorni/concorsi" and len(paths) == 9
+    assert all(p.startswith("/eli/gu/") and p.endswith("/S4/html") for p in paths[1:])
+    assert r["richieste_effettuate"] == 9
+    assert cache.stats()["sommari"] == 8
+    # coverage is always stated
+    assert "dal 2026-09-08 al 2026-10-02" in r["copertura"]
+    assert "bandi esaminati" in r["copertura"] and r["bandi_esaminati"] > 0
+    assert "bando completo" in r["avviso_lettura"] and "sito ufficiale" in r["avviso_lettura"]
+    assert r["regione"] == "Lombardia"
+    pavia = next(x for x in r["risultati"] if x["codice"] == "26E05265")
+    assert pavia["ente"].endswith("DI PAVIA") and pavia["posti"] == 20
+    assert pavia["tipo"] == "bando" and pavia["regione"] == "Lombardia"
+    assert pavia["numero_gu"] == 76 and pavia["data_gu"] == "2026-10-02"
+    assert pavia["link"].endswith("/eli/id/2026/10/02/26E05265/S4")
+    assert all(x["regione"] == "Lombardia" for x in r["risultati"])
+    assert r["regione_non_determinata"] == 0
+    # a second search is free: index and issues are cached
+    n = len(seen)
+    r2 = await service.cerca_concorsi("infermiere", regione="Lombardia")
+    assert len(seen) == n and r2["richieste_effettuate"] == 0 and r2["totale"] == r["totale"]
+
+
+async def test_cerca_concorsi_filters_types_and_region_unknowns():
+    service, *_ = make_service()
+    only_calls = await service.cerca_concorsi("diario")
+    assert only_calls["totale"] == 0  # diari are not calls
+    more = await service.cerca_concorsi("diario", includi_altri_atti=True)
+    assert more["totale"] > 0 and {x["tipo"] for x in more["risultati"]} == {"diario_prove"}
+    # region filter: unknown-region items are counted, not silently dropped
+    lazio = await service.cerca_concorsi("assistente amministrativo", regione="Lazio")
+    assert lazio["totale"] > 0 and all(x["regione"] == "Lazio" for x in lazio["risultati"])
+    cam = await service.cerca_concorsi("ragioniere", regione="Lazio", includi_altri_atti=True)
+    assert cam["regione_non_determinata"] >= 1 and cam["totale"] == 0
+    assert any("non determinata" in n for n in cam["note"])
+    no_filter = await service.cerca_concorsi("ragioniere", includi_altri_atti=True)
+    assert no_filter["totale"] >= 1 and no_filter["regione_non_determinata"] is None
+    assert no_filter["risultati"][0]["regione"] is None
+    # keyword plural/singular and result limit
+    plural = await service.cerca_concorsi("infermieri", limite=1)
+    assert plural["mostrati"] == 1 and plural["totale"] >= 1
+
+
+async def test_cerca_concorsi_errors_and_aperti_window():
+    service, seen, _cache, _ = make_service()
+    with pytest.raises(ServiceError, match="parola chiave"):
         await service.cerca_concorsi("  ")
+    with pytest.raises(ServiceError, match="parola chiave"):
+        await service.cerca_concorsi("!!!")
+    with pytest.raises(ValueError, match="non riconosciuta"):
+        await service.cerca_concorsi("infermiere", regione="Groenlandia")
+    assert seen == []  # bad input never reaches the network
+
+
+async def test_cerca_concorsi_window_excludes_old_cached_issues_unless_asked():
+    from datetime import timedelta
+
+    from gazzetta_mcp.models import Serie, Sommario, SommarioVoce
+
+    service, _seen, cache, _ = make_service()
+    old_day = date(2026, 10, 5) - timedelta(days=60)
+    voce = SommarioVoce(
+        "26E00001",
+        "Concorso pubblico per un posto di bibliotecario",
+        "COMUNE DI SIENA",
+        "ENTI LOCALI",
+        "https://x/26E00001",
+    )
+    cache.put_sommario(Sommario(Serie.S4, old_day, 40, "https://x/h", "https://x/p", [voce]))
+    base = await service.cerca_concorsi("bibliotecario")
+    assert base["totale"] == 0
+    wide = await service.cerca_concorsi("bibliotecario", aperti=False)
+    assert wide["totale"] == 1 and wide["risultati"][0]["regione"] == "Toscana"
+    assert wide["risultati"][0]["data_gu"] == old_day.isoformat()
+
+
+async def test_ensure_recent_sommari_respects_defaults_and_hard_cap():
+    from gazzetta_mcp.models import Serie
+
+    service, seen, cache, _ = make_service()
+    sg = await service.ensure_recent_sommari(Serie.SG)  # default 7
+    assert len(sg.sommari) == 7 and sg.richieste == 8 and len(seen) == 8
+    assert cache.stats()["sommari"] == 7
+    again = await service.ensure_recent_sommari(Serie.SG)
+    assert again.richieste == 0 and len(seen) == 8
+    # asking for more costs only the missing ones, and never beyond the hard cap of 12
+    more = await service.ensure_recent_sommari(Serie.SG, max_issues=500)
+    assert len(more.sommari) == 12 and more.richieste == 5 and len(seen) == 13
+    # newest first, numbers taken from the index (nothing guessed)
+    assert [s.numero for s in more.sommari] == list(range(230, 218, -1))
+    one = await service.ensure_recent_sommari(Serie.SG, max_issues=1)
+    assert [s.numero for s in one.sommari] == [230]
+
+
+async def test_ensure_recent_sommari_survives_a_broken_issue():
+    from gazzetta_mcp.models import Serie
+
+    service, _seen, _cache, _ = make_service(fail={"/2026/09/22/73/": 500})
+    r = await service.ensure_recent_sommari(Serie.S4)
+    assert len(r.sommari) == 7
+    assert any("73" in n and "non caricato" in n for n in r.notes)
+    out = await service.cerca_concorsi("infermiere")
+    assert out["totale"] >= 1 and any("non caricato" in n for n in out["note"])
+
+
+async def test_ensure_recent_sommari_stops_after_repeated_failures():
+    from gazzetta_mcp.models import Serie
+
+    service, seen, *_ = make_service(fail={"/S4/html": 503})
+    r = await service.ensure_recent_sommari(Serie.S4)
+    assert r.sommari == [] and r.richieste == 1
+    assert len(seen) == 1 + 3  # the index plus three failed attempts, then it gives up
+
+
+async def test_index_failure_falls_back_to_the_cache():
+    service, _seen, cache, _ = make_service()
+    await service.cerca_concorsi("infermiere")  # fills the cache
+    cache._conn.execute("DELETE FROM http_pages")  # the index must be fetched again
+    service2, seen2, _, _ = make_service(cache=cache, fail={"/30giorni/": 500})
+    r = await service2.cerca_concorsi("infermiere")
+    assert r["totale"] >= 1 and len(seen2) == 1
+    assert any("elenco dei numeri" in n for n in r["note"])
+
+
+async def test_codes_seen_are_remembered_so_leggi_atto_needs_no_date():
+    from gazzetta_mcp.models import Serie
+
+    service, _seen, cache, _ = make_service()
+    await service.ensure_recent_sommari(Serie.S4, max_issues=1)
+    assert cache.find_codice("26E05478") == (Serie.S4, date(2026, 10, 2))
+    # leggi_atto(codice) now needs neither date nor series
+    assert service._locate("26E05478", None, None) == (Serie.S4, date(2026, 10, 2), False)
+
+
+async def test_cerca_cold_start_loads_sg_and_s4_and_states_the_range():
+    service, seen, _cache, _ = make_service()
+    r = await service.cerca("infermiere")
+    check(r)
+    assert r["totale"] > 0
+    loaded = {x["serie"]: x for x in r["numeri_caricati"]}
+    assert loaded["SG"]["numeri"] == 7 and loaded["S4"]["numeri"] == 8
+    assert loaded["S4"]["dal"] == "2026-09-08" and loaded["S4"]["al"] == "2026-10-02"
+    assert "NON viene cercato il testo completo" in r["copertura"]
+    assert "S4 dal 2026-09-08 al 2026-10-02" in r["copertura"]
+    assert len(seen) == 2 + 7 + 8
+    n = len(seen)
+    await service.cerca("infermiere")
+    assert len(seen) == n  # second call costs nothing
+
+
+async def test_cerca_single_series_and_no_refresh_modes():
+    service, seen, *_ = make_service()
+    r = await service.cerca("decreto", serie="SG")
+    assert [x["serie"] for x in r["numeri_caricati"]] == ["SG"]
+    assert all(q.url.path != "/30giorni/concorsi" for q in seen)
+    offline, seen2, *_ = make_service()
+    r2 = await offline.cerca("decreto", aggiorna=False)
+    assert seen2 == [] and r2["totale"] == 0 and "vuota" in r2["messaggio"]
+    other, seen3, *_ = make_service()
+    r3 = await other.cerca("sentenza", serie="S1")  # no index known for S1: cache only
+    assert seen3 == [] and r3["totale"] == 0
+
+
+async def test_cerca_without_refresh_behaves_as_before():
+    service, seen, *_ = make_service()
+    await service.sommario("2026-10-03", "SG")
+    n = len(seen)
+    r = await service.cerca("decreto", serie="SG", aggiorna=False)
+    check(r)
+    assert len(seen) == n and r["numeri_caricati"] == []
+    assert "solo i contenuti gia' presenti nella cache locale" in r["copertura"]
 
 
 async def test_rimando_normattiva():
@@ -132,16 +299,18 @@ async def test_rimando_normattiva():
 
 async def test_cerca_empty_cache_then_results():
     service, *_ = make_service()
-    empty = service.cerca("decreto")
+    empty = await service.cerca("decreto", aggiorna=False)
     check(empty)
     assert empty["totale"] == 0 and "vuota" in empty["messaggio"]
     atto = await service.leggi_atto("26A05182", data="2026-10-03")
     word = atto["titolo"].split()[-1]
-    r = service.cerca(word, serie="SG", dal="2026-10-01", al="2026-10-05", limite=5)
+    r = await service.cerca(
+        word, serie="SG", dal="2026-10-01", al="2026-10-05", limite=5, aggiorna=False
+    )
     check(r)
     assert any(h["codice"] == "26A05182" for h in r["risultati"])
     with pytest.raises(ServiceError, match="AAAA-MM-GG"):
-        service.cerca("x", dal="ieri")
+        await service.cerca("x", dal="ieri")
 
 
 def test_user_message_never_leaks():

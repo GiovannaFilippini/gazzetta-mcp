@@ -71,12 +71,29 @@ def register(mcp: FastMCP, get_service: ServiceGetter) -> None:
         return await _guard(get_service().leggi_atto(codice, data, serie, offset))
 
     @mcp.tool
-    async def cerca_concorsi(parole_chiave: str, regione: str | None = None) -> dict[str, Any]:
-        """Cerca bandi di concorso (4a Serie Speciale) per parole chiave ed eventualmente regione.
+    async def cerca_concorsi(
+        parole_chiave: str,
+        regione: str | None = None,
+        aperti: bool = True,
+        includi_altri_atti: bool = False,
+        limite: int = 30,
+    ) -> dict[str, Any]:
+        """Cerca bandi di concorso (4a Serie Speciale) senza bisogno di codici o numeri.
 
-        Copre SOLO la cache locale e l'ultimo feed S4: non esplora l'archivio della Gazzetta.
+        Esempio: parole_chiave='infermiere', regione='Lombardia'. Al primo uso scarica, con
+        poche richieste distanziate, i sommari dei numeri degli ultimi 30 giorni (tipicamente
+        8-9 numeri) e li tiene in cache. Cerca nel titolo e nell'ente di ogni atto (non nel
+        testo del bando): ogni risposta dichiara i numeri esaminati. La regione e' stimata dal
+        nome dell'ente; gli atti di regione non determinata sono contati a parte.
+        aperti: solo numeri degli ultimi 30 giorni (i bandi sono di norma ancora aperti);
+        con false si aggiungono i numeri piu' vecchi gia' in cache.
+        includi_altri_atti: aggiunge diari delle prove, graduatorie, rettifiche, commissioni.
+        limite: massimo di risultati (fino a 100).
+        Il bando completo va letto sul sito ufficiale (link in ogni risultato).
         """
-        return await _guard(get_service().cerca_concorsi(parole_chiave, regione))
+        return await _guard(
+            get_service().cerca_concorsi(parole_chiave, regione, aperti, includi_altri_atti, limite)
+        )
 
     @mcp.tool
     async def rimando_normattiva(atto: str) -> dict[str, Any]:
@@ -99,17 +116,19 @@ def register(mcp: FastMCP, get_service: ServiceGetter) -> None:
         dal: str | None = None,
         al: str | None = None,
         limite: int = 20,
+        aggiorna: bool = True,
     ) -> dict[str, Any]:
-        """Ricerca a testo pieno nella cache locale (atti, sommari e feed gia' consultati).
+        """Ricerca nella cache locale (atti, sommari e feed), dopo averla aggiornata.
 
+        Con aggiorna=true (predefinito) e serie SG, S4 o non indicata, scarica prima, con poche
+        richieste distanziate, i sommari dei numeri recenti (SG: ultimi 7; S4: ultimi 9) non
+        ancora in cache, cosi' funziona anche a cache vuota. Si cerca nei titoli, negli enti e
+        nei riassunti, NON nel testo completo degli atti (solo quelli gia' letti con leggi_atto).
+        La risposta dice quali date sono state caricate. Con aggiorna=false non si fa rete.
         Filtri facoltativi: serie (SG, S1-S5, P2), tipo (es. DECRETO, LEGGE, AVVISO),
-        dal / al (AAAA-MM-GG), limite (massimo 100). Non interroga il sito della Gazzetta.
+        dal / al (AAAA-MM-GG), limite (massimo 100).
         """
-
-        async def run() -> dict[str, Any]:
-            return get_service().cerca(testo, serie, tipo, dal, al, limite)
-
-        return await _guard(run())
+        return await _guard(get_service().cerca(testo, serie, tipo, dal, al, limite, aggiorna))
 
 
 __all__ = ["ServiceError", "register"]

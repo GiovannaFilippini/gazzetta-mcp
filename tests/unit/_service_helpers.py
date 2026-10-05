@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import date
 from pathlib import Path
 
@@ -21,12 +22,18 @@ TODAY = date(2026, 10, 5)
 ROUTES = {
     "/rss/SG": "rss_SG.xml",
     "/rss/S4": "rss_S4.xml",
+    "/30giorni/concorsi": "elenco_30giorni_concorsi.html",
+    "/30giorni/serie_generale": "elenco_30giorni_serie_generale.html",
     "/eli/gu/2026/10/03/230/SG/html": "sommario_sg_2026-10-03_230.html",
     "/eli/gu/2026/10/02/76/S4/html": "sommario_s4_2026-10-02_76.html",
     "/eli/id/2026/10/03/26A05182/SG": "atto_scheda_26A05182_sg.html",
     "/eli/id/2026/10/02/26E05478/S4": "atto_scheda_26E05478_s4.html",
     "/atto/serie_generale/caricaArticoloDefault/originario": "atto_testo_26A05182_sg.html",
 }
+
+
+ISSUE_PATH = re.compile(r"^/eli/gu/\d{4}/\d{2}/\d{2}/\d+/(SG|S4)/html$")
+GENERIC_ISSUE = {"SG": "sommario_sg_2026-10-03_230.html", "S4": "sommario_s4_2026-10-02_76.html"}
 
 
 class NoLimit(RateLimiter):
@@ -38,13 +45,22 @@ class NoLimit(RateLimiter):
 
 
 def make_service(
-    limits: Limits | None = None, cache: SqliteCache | None = None
+    limits: Limits | None = None,
+    cache: SqliteCache | None = None,
+    fail: dict[str, int] | None = None,
 ) -> tuple[GazzettaService, list[httpx.Request], SqliteCache, GuClient]:
     seen: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(request)
+        for part, status in (fail or {}).items():  # simulate a broken page
+            if part in request.url.path:
+                return httpx.Response(status, text="error")
         name = ROUTES.get(request.url.path)
+        if name is None:
+            m = ISSUE_PATH.match(request.url.path)
+            if m:  # any other issue of SG / S4: serve the sample issue of that series
+                name = GENERIC_ISSUE.get(m.group(1))
         if name is None:
             return httpx.Response(404, text="not found")
         return httpx.Response(200, content=(FIX / name).read_bytes())
