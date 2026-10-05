@@ -118,6 +118,7 @@ class SearchHit:
     estratto: str
     link: str
     punteggio: float = 0.0
+    origine: str = "cache"  # where the hit comes from: cache | normattiva | ricerca_gu
 
 
 @dataclass(frozen=True)

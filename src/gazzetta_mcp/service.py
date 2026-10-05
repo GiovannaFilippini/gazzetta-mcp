@@ -17,8 +17,8 @@ from typing import Any
 from .cache.sqlite import CacheError, SqliteCache
 from .concorsi import BANDI, classify, estrai_posti, keyword_matcher
 from .config import Settings
-from .interfaces import Cache, NormattivaLinker, Parser, SourceClient
-from .models import DISCLAIMER, Atto, SearchFilters, Serie, Sommario
+from .interfaces import ArchiveSearch, Cache, NormattivaLinker, Parser, SourceClient
+from .models import DISCLAIMER, Atto, SearchFilters, SearchHit, Serie, Sommario
 from .parsing import GuParser, ParseError
 from .regioni import normalize, normalizza_regione, regione_ente
 from .sources.gu import (
@@ -30,6 +30,7 @@ from .sources.gu import (
     UnsupportedSerieError,
     resolve_numero,
 )
+from .sources.archivio import ArchivioClient
 from .sources.normattiva import NormattivaLinkBuilder
 
 # Feeds that are already cached are used for date lookups whatever their age.
@@ -156,6 +157,8 @@ class GazzettaService:
         today: Callable[[], date] = date.today,
         now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
         closers: tuple[Callable[[], Any], ...] = (),
+        archivio: ArchiveSearch | None = None,
+        ricerca_gu: ArchiveSearch | None = None,
     ) -> None:
         self._client = client
         self._parser = parser
@@ -166,6 +169,8 @@ class GazzettaService:
         self._today = today
         self._now = now
         self._closers = closers
+        self._archivio = archivio
+        self._ricerca_gu = ricerca_gu
         self._base = self._settings.gu_base_url.rstrip("/")
 
     async def aclose(self) -> None:
@@ -610,6 +615,41 @@ class GazzettaService:
             [link.link, self._base],
         )
 
+    async def _search_archives(
+        self,
+        testo: str,
+        filtri: SearchFilters,
+        serie: Serie | None,
+        hits: list[SearchHit],
+        note: list[str],
+    ) -> tuple[list[SearchHit], list[str]]:
+        """Add results from the archives that are switched on; local hits come first.
+
+        Each archive costs one request, is rate limited and cached, and a failure is only a
+        note. Duplicates (same act code) are dropped, keeping the local hit.
+        """
+        merged = list(hits)
+        seen = {h.codice for h in merged}
+        used: list[str] = []
+        sources = [
+            (self._archivio, "atti normativi dal sito Normattiva (open data), per titolo"),
+            (self._ricerca_gu, "ricerca avanzata del sito della Gazzetta Ufficiale"),
+        ]
+        for source, label in sources:
+            if source is None or serie not in (None, Serie.SG):
+                continue
+            try:
+                found, total = await source.cerca(testo, filtri)
+            except GuError as exc:
+                note.append(f"Ricerca nell'archivio non riuscita ({label}): {user_message(exc)}")
+                continue
+            used.append(f"{label} ({total} atti trovati, mostrati i piu' pertinenti)")
+            for h in found:
+                if h.codice not in seen:
+                    seen.add(h.codice)
+                    merged.append(h)
+        return merged[: filtri.limite], used
+
     # --- 6. cerca -------------------------------------------------------------------
 
     async def cerca(
@@ -668,11 +708,14 @@ class GazzettaService:
                 [self._base],
             )
         hits = self._cache.search(testo, filtri)
+        fonti_archivio: list[str] = []
+        if aggiorna:
+            hits, fonti_archivio = await self._search_archives(testo, filtri, s, hits, note)
         if not hits:
             note.append(
-                "Nessun risultato nei numeri recenti e nella cache locale: l'atto potrebbe essere "
-                "piu' vecchio. Prova parole diverse, indica un periodo con dal/al, oppure usa la "
-                "ricerca del sito ufficiale (https://www.gazzettaufficiale.it/ricerca/atto/serie_generale/originario)."
+                "Nessun risultato nei numeri recenti, nella cache locale e nell'archivio: prova "
+                "parole diverse, indica un periodo con dal/al, oppure usa la ricerca del sito "
+                "ufficiale (https://www.gazzettaufficiale.it)."
             )
         if loaded:
             parti = [
@@ -691,6 +734,13 @@ class GazzettaService:
             copertura = (
                 "La ricerca copre solo i contenuti gia' presenti nella cache locale "
                 "(feed, sommari e atti consultati finora), non l'intero archivio."
+            )
+        if fonti_archivio:
+            copertura += (
+                " In piu' e' stato interrogato l'archivio: "
+                + "; ".join(fonti_archivio)
+                + ". Gli atti con origine diversa da 'cache' vanno letti con leggi_atto "
+                "indicando anche la data."
             )
         fonte = [h.link for h in hits[:5]] or [r.sommari[0].link for r in loaded if r.sommari]
         return self._result(
@@ -757,6 +807,7 @@ def _hit(h) -> dict[str, Any]:
         "estratto": h.estratto,
         "link": h.link,
         "punteggio": round(h.punteggio, 3),
+        "origine": h.origine,
     }
 
 
@@ -780,12 +831,15 @@ def build_service(settings: Settings | None = None) -> GazzettaService:
             )
         except ValueError:
             pass
+    archivio = ArchivioClient(settings, cache=cache) if settings.archivio_normattiva else None
+    closers = (client.aclose, cache.close) + ((archivio.aclose,) if archivio else ())
     return GazzettaService(
+        archivio=archivio,
         client=client,
         parser=GuParser(),
         cache=cache,
         linker=NormattivaLinkBuilder(settings),
         settings=settings,
         limits=limits,
-        closers=(client.aclose, cache.close),
+        closers=closers,
     )

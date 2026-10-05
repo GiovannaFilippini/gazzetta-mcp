@@ -22,6 +22,7 @@ from ..models import (
     Sommario,
     SommarioVoce,
 )
+from ..searchtext import STOPWORDS, stem
 
 Clock = Callable[[], datetime]
 
@@ -119,18 +120,6 @@ _MIGRATIONS: list[str] = [
 _WORD = re.compile(r"\w+", re.UNICODE)
 
 
-_STOPWORDS = frozenset(
-    "a ad al alla alle agli ai allo con da dal dalla dalle dei del della delle degli di e ed "
-    "gli i il in la le lo nel nella nelle nei negli o per su sul sulla sulle sui tra fra un "
-    "uno una l d".split()
-)
-
-
-def _stem(word: str) -> str:
-    """Crude Italian stem: drop the final vowel so singular and plural share a prefix."""
-    return word[:-1] if len(word) >= 5 and word[-1] in "aeio" else word
-
-
 def build_match_query(text: str, *, any_word: bool = False) -> str | None:
     """Turn free user text into a safe FTS5 query.
 
@@ -141,8 +130,8 @@ def build_match_query(text: str, *, any_word: bool = False) -> str | None:
     words = [w.lower() for w in _WORD.findall(text)]
     if not words:
         return None
-    kept = [w for w in words if w not in _STOPWORDS] or words
-    terms = [f'"{_stem(w)}"*' if _stem(w) != w else f'"{w}"' for w in kept]
+    kept = [w for w in words if w not in STOPWORDS] or words
+    terms = [f'"{stem(w)}"*' if stem(w) != w else f'"{w}"' for w in kept]
     return (" OR " if any_word else " ").join(terms)
 
 

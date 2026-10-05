@@ -59,6 +59,12 @@ class Cache(Protocol):
     def put_http(self, page: RawPage) -> None: ...
 
 
+class ArchiveSearch(Protocol):
+    """Searches acts that are not in the local cache (older than the recent issues)."""
+
+    async def cerca(self, testo: str, filtri: SearchFilters) -> tuple[list[SearchHit], int]: ...
+
+
 class NormattivaLinker(Protocol):
     """Builds the link to the current version on Normattiva. No bulk download in v1."""
 

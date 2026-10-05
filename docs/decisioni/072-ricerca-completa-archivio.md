@@ -1,0 +1,6 @@
+# 072 - Ricerca piu' completa: radici, finestra di 30 giorni, archivio Normattiva
+
+- **Problema:** `cerca` restituiva spesso 0 risultati: finestra di soli 7 numeri SG, parole che dovevano coincidere esattamente, nessun archivio.
+- **Scelta (S0):** il sommario SG si carica per intero (24 numeri, tetto 30 per chiamata); le parole diventano prefissi della radice (`acquisto` trova `acquisti`) e le stopword si ignorano; se nessun titolo contiene tutte le parole si ripiega su "almeno una" ordinando per pertinenza; la rubrica non e' piu' indicizzata come testo (migrazione v2). Supera in parte la 030 ("nessuna ricerca per prefisso").
+- **Scelta (S1):** `cerca` interroga anche l'API Open Data di Normattiva (`ricerca/avanzata`, licenza CC BY 4.0, senza chiave): una POST per ricerca, con limite di frequenza e cache di 24 ore. L'API cerca "almeno una parola" nel titolo e ordina per data: la pertinenza si calcola in locale. Copre solo atti normativi. I risultati hanno `origine: normattiva`; quelli locali vengono prima, i doppioni si scartano per codice. Un errore e' solo una nota. Si disattiva con `GAZZETTA_MCP_ARCHIVIO_NORMATTIVA=0`. Supera in parte la 005 (Normattiva solo link).
+- **Scelta (S2):** ricerca avanzata del sito GU, **spenta di default** (`GAZZETTA_MCP_RICERCA_GU=1`), da attivare solo dopo aver chiarito i termini d'uso con IPZS.
