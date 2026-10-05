@@ -72,7 +72,7 @@ def test_implements_protocol(cache):
 
 def test_from_settings_and_memory(tmp_path):
     with SqliteCache.from_settings(Settings(cache_path=tmp_path / "a" / "c.db")) as c:
-        assert c.schema_version == 1
+        assert c.schema_version == 2
     assert (tmp_path / "a" / "c.db").exists()
     with SqliteCache(":memory:") as m:
         m.put_atto(make_atto())
@@ -186,7 +186,9 @@ def test_search_hit_fields_and_multiword_and(cache):
     assert h[0].link.endswith("25A00001")
     assert "[trasporti]" in h[0].estratto
     assert h[0].punteggio > 0
-    assert hits(cache, "trasporti inesistente") == []
+    # every word must match; otherwise it falls back to any word
+    assert [x.codice for x in hits(cache, "trasporti inesistente")] == ["25A00001"]
+    assert hits(cache, "inesistente") == []
 
 
 def test_search_ranking_prefers_better_match(cache):
@@ -261,15 +263,18 @@ def test_search_hostile_input_never_raises(cache, text):
 def test_search_operator_words_are_literal(cache):
     cache.put_atto(make_atto("A1", testo="gatti e cani"))
     cache.put_atto(make_atto("A2", testo="solo gatti"))
-    # "AND" is just a term here, so only text containing the word "and"/"AND" matches.
-    assert hits(cache, "gatti AND cani") == []
+    # "AND" is just a term: with all words nothing matches, then it falls back to any word.
+    assert hits(cache, "gatti AND cani")[0].codice == "A1"  # best match first
     assert [h.codice for h in hits(cache, 'gatti "cani')] == ["A1"]
-    assert len(hits(cache, "gat*")) == 0  # no wildcard: '*' is stripped, "gat" != "gatti"
+    assert len(hits(cache, "gat*")) == 0  # '*' is stripped and "gat" is too short to be a stem
     assert hits(cache, "   ") == [] and hits(cache, "") == [] and hits(cache, '"*"') == []
 
 
 def test_build_match_query():
-    assert build_match_query('a "b" AND c*') == '"a" "b" "AND" "c"'
+    assert build_match_query('a "b" AND c*') == '"b" "and" "c"'
+    assert build_match_query("acquisto di autoveicoli") == '"acquist"* "autoveicol"*'
+    assert build_match_query("acquisto autoveicoli", any_word=True) == '"acquist"* OR "autoveicol"*'
+    assert build_match_query("di la") == '"di" "la"'  # only stopwords: keep them
     assert build_match_query("***") is None
 
 
@@ -294,7 +299,7 @@ def test_persists_across_reopen(tmp_path, clock):
     with SqliteCache(path, clock=clock) as c:
         c.put_atto(make_atto())
     with SqliteCache(path, clock=clock) as c:
-        assert c.schema_version == 1
+        assert c.schema_version == 2
         assert c.get_atto("25A00001") is not None
         assert len(hits(c, "decreto")) == 1
 
@@ -303,7 +308,7 @@ def test_migration_from_empty_db(tmp_path):
     path = tmp_path / "empty.db"
     sqlite3.connect(path).close()  # existing zero-byte database, user_version 0
     with SqliteCache(path) as c:
-        assert c.schema_version == 1
+        assert c.schema_version == 2
         assert c.stats()["atti"] == 0
 
 
@@ -317,10 +322,10 @@ def test_migration_applies_only_missing_steps(tmp_path, monkeypatch):
         mod, "_MIGRATIONS", [*mod._MIGRATIONS, "ALTER TABLE atti ADD COLUMN extra TEXT;"]
     )
     with SqliteCache(path) as c:
-        assert c.schema_version == 2
+        assert c.schema_version == 3
         assert c.get_atto("25A00001") is not None  # data survived the upgrade
     with SqliteCache(path) as c:  # re-opening does not re-run it
-        assert c.schema_version == 2
+        assert c.schema_version == 3
 
 
 def test_failed_migration_rolls_back(tmp_path, monkeypatch):
@@ -331,7 +336,7 @@ def test_failed_migration_rolls_back(tmp_path, monkeypatch):
     with pytest.raises(sqlite3.Error):
         SqliteCache(path)
     conn = sqlite3.connect(path)
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 1  # v1 kept, v2 rolled back
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 2  # v2 kept, v3 rolled back
     assert conn.execute("SELECT name FROM sqlite_master WHERE name = 't'").fetchone() is None
     conn.close()
 

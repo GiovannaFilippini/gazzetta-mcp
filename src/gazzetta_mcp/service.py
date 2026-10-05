@@ -103,8 +103,8 @@ class Limits:
     max_search_results: int = 100
     # Issues whose table of contents is loaded automatically by cerca / cerca_concorsi.
     recent_issues_s4: int = 9
-    recent_issues_sg: int = 7
-    max_recent_issues: int = 12  # hard cap of network fetches of issues per call
+    recent_issues_sg: int = 24  # about 30 days of the Serie Generale
+    max_recent_issues: int = 30  # hard cap of network fetches of issues per call
     concorsi_window_days: int = 30  # a call is considered open this long after publication
 
 
@@ -668,6 +668,12 @@ class GazzettaService:
                 [self._base],
             )
         hits = self._cache.search(testo, filtri)
+        if not hits:
+            note.append(
+                "Nessun risultato nei numeri recenti e nella cache locale: l'atto potrebbe essere "
+                "piu' vecchio. Prova parole diverse, indica un periodo con dal/al, oppure usa la "
+                "ricerca del sito ufficiale (https://www.gazzettaufficiale.it/ricerca/atto/serie_generale/originario)."
+            )
         if loaded:
             parti = [
                 f"{r.serie.value} dal {r.dal.isoformat()} al {r.al.isoformat()} "
@@ -676,7 +682,7 @@ class GazzettaService:
                 if r.sommari
             ]
             copertura = (
-                "Cercato nei titoli, negli enti e nei riassunti degli atti dei numeri piu' recenti"
+                "Cercato nei titoli e negli enti degli atti dei numeri piu' recenti"
                 + (f" ({'; '.join(parti)})" if parti else "")
                 + " e in quanto gia' presente nella cache locale. NON viene cercato il testo "
                 "completo degli atti, salvo quelli gia' letti con leggi_atto."

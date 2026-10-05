@@ -109,21 +109,41 @@ _MIGRATIONS: list[str] = [
         tokenize = 'unicode61 remove_diacritics 2'
     );
     """,
+    # v2: the rubrica of a sommario entry is no longer searchable text (it only added noise).
+    """
+    UPDATE docs_fts SET testo = ''
+    WHERE rowid IN (SELECT id FROM docs WHERE kind = 'voce');
+    """,
 ]
 
 _WORD = re.compile(r"\w+", re.UNICODE)
 
 
-def build_match_query(text: str) -> str | None:
-    """Turn free user text into a safe FTS5 query: every word quoted, implicitly ANDed.
+_STOPWORDS = frozenset(
+    "a ad al alla alle agli ai allo con da dal dalla dalle dei del della delle degli di e ed "
+    "gli i il in la le lo nel nella nelle nei negli o per su sul sulla sulle sui tra fra un "
+    "uno una l d".split()
+)
 
-    Anything that is not a word character (quotes, ``*``, ``-``, parentheses...) is dropped,
-    and operator words such as AND/OR/NOT/NEAR become plain terms. Returns None if empty.
+
+def _stem(word: str) -> str:
+    """Crude Italian stem: drop the final vowel so singular and plural share a prefix."""
+    return word[:-1] if len(word) >= 5 and word[-1] in "aeio" else word
+
+
+def build_match_query(text: str, *, any_word: bool = False) -> str | None:
+    """Turn free user text into a safe FTS5 query.
+
+    Every word is quoted (so operators such as AND/OR/NEAR are plain terms); Italian stopwords
+    are dropped and longer words become prefixes of their stem (``acquisto`` also finds
+    ``acquisti``). Words are ANDed, or ORed with ``any_word``. Returns None if empty.
     """
-    words = _WORD.findall(text)
+    words = [w.lower() for w in _WORD.findall(text)]
     if not words:
         return None
-    return " ".join(f'"{w}"' for w in words)
+    kept = [w for w in words if w not in _STOPWORDS] or words
+    terms = [f'"{_stem(w)}"*' if _stem(w) != w else f'"{w}"' for w in kept]
+    return (" OR " if any_word else " ").join(terms)
 
 
 def _utc(dt: datetime) -> datetime:
@@ -370,7 +390,7 @@ class SqliteCache:
                     v.link,
                     v.titolo,
                     v.emettitore,
-                    v.rubrica,
+                    "",
                 )
 
     # -- atti ------------------------------------------------------------------------------
@@ -473,8 +493,16 @@ class SqliteCache:
         )
 
     def search(self, testo: str, filtri: SearchFilters) -> list[SearchHit]:
-        """Full text search over everything cached. One hit per act (full text wins)."""
-        match = build_match_query(testo)
+        """Full text search over everything cached. One hit per act (full text wins).
+
+        Tries every word first; when that finds nothing falls back to any word (best first).
+        """
+        hits = self._search(build_match_query(testo), filtri)
+        if not hits:
+            hits = self._search(build_match_query(testo, any_word=True), filtri)
+        return hits
+
+    def _search(self, match: str | None, filtri: SearchFilters) -> list[SearchHit]:
         if match is None or filtri.limite <= 0:
             return []
         where = ["docs_fts MATCH ?"]

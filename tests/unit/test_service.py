@@ -212,16 +212,16 @@ async def test_ensure_recent_sommari_respects_defaults_and_hard_cap():
     from gazzetta_mcp.models import Serie
 
     service, seen, cache, _ = make_service()
-    sg = await service.ensure_recent_sommari(Serie.SG)  # default 7
+    sg = await service.ensure_recent_sommari(Serie.SG, max_issues=7)
     assert len(sg.sommari) == 7 and sg.richieste == 8 and len(seen) == 8
     assert cache.stats()["sommari"] == 7
-    again = await service.ensure_recent_sommari(Serie.SG)
+    again = await service.ensure_recent_sommari(Serie.SG, max_issues=7)
     assert again.richieste == 0 and len(seen) == 8
-    # asking for more costs only the missing ones, and never beyond the hard cap of 12
+    # asking for more costs only the missing ones, and never beyond the index (24 issues)
     more = await service.ensure_recent_sommari(Serie.SG, max_issues=500)
-    assert len(more.sommari) == 12 and more.richieste == 5 and len(seen) == 13
+    assert len(more.sommari) == 24 and more.richieste == 17 and len(seen) == 25
     # newest first, numbers taken from the index (nothing guessed)
-    assert [s.numero for s in more.sommari] == list(range(230, 218, -1))
+    assert [s.numero for s in more.sommari][:12] == list(range(230, 218, -1))
     one = await service.ensure_recent_sommari(Serie.SG, max_issues=1)
     assert [s.numero for s in one.sommari] == [230]
 
@@ -272,11 +272,11 @@ async def test_cerca_cold_start_loads_sg_and_s4_and_states_the_range():
     check(r)
     assert r["totale"] > 0
     loaded = {x["serie"]: x for x in r["numeri_caricati"]}
-    assert loaded["SG"]["numeri"] == 7 and loaded["S4"]["numeri"] == 8
+    assert loaded["SG"]["numeri"] == 24 and loaded["S4"]["numeri"] == 8
     assert loaded["S4"]["dal"] == "2026-09-08" and loaded["S4"]["al"] == "2026-10-02"
     assert "NON viene cercato il testo completo" in r["copertura"]
     assert "S4 dal 2026-09-08 al 2026-10-02" in r["copertura"]
-    assert len(seen) == 2 + 7 + 8
+    assert len(seen) == 2 + 24 + 8
     n = len(seen)
     await service.cerca("infermiere")
     assert len(seen) == n  # second call costs nothing
