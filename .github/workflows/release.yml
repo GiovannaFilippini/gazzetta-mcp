@@ -1,0 +1,42 @@
+# Publishes the package to PyPI using trusted publishing.
+#
+# NOT ACTIVE BY DESIGN: this workflow can only be started by hand (workflow_dispatch) and
+# refuses to run unless the guard input is typed exactly. It has no tag or push trigger.
+# The maintainer must enable it explicitly: configure the trusted publisher on PyPI for this
+# repository and workflow, create the "pypi" environment on GitHub, then run it manually.
+# See docs/decisioni/050-release-non-attivo.md.
+name: release
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "publish" to confirm a real release to PyPI'
+        required: true
+        default: "no"
+
+jobs:
+  build:
+    if: ${{ inputs.confirm == 'publish' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    if: ${{ inputs.confirm == 'publish' }}
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
