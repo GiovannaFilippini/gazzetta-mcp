@@ -24,14 +24,14 @@ class Serie(str, Enum):
     P2 = "P2"  # Parte II (inserzioni)
 
 
-# Path segment used by /atto/<segment>/caricaArticoloDefault/... Verified: SG, S4.
-# Others must be verified by the GU client (see docs/fonti.md).
+# Path segment used by /atto/<segment>/caricaArticoloDefault/... Verified: SG, S1, S3, S4.
+# S2, S5, P2: no such frame found on act pages (see docs/fonti.md); None = unsupported.
 ATTO_URL_SEGMENT: dict[Serie, str | None] = {
     Serie.SG: "serie_generale",
     Serie.S4: "concorsi",
-    Serie.S1: None,
+    Serie.S1: "corte_costituzionale",
     Serie.S2: None,
-    Serie.S3: None,
+    Serie.S3: "regioni",
     Serie.S5: None,
     Serie.P2: None,
 }
