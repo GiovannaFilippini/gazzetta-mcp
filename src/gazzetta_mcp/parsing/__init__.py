@@ -7,6 +7,7 @@ from datetime import date
 from ..models import Atto, Feed, Serie, Sommario
 from ._util import ParseError
 from .atto import parse_atto
+from .elenco import parse_elenco_30giorni
 from .feed import parse_feed
 from .sommario import parse_sommario
 from .text import clean_text, extract_pre
@@ -31,6 +32,9 @@ class GuParser:
     ) -> Sommario:
         return parse_sommario(raw, serie, data, numero, base_url)
 
+    def parse_elenco_30giorni(self, raw: bytes) -> list[tuple[date, int]]:
+        return parse_elenco_30giorni(raw)
+
     def parse_atto(
         self, scheda: bytes, testo: bytes, codice: str, serie: Serie, data: date, base_url: str
     ) -> Atto:
@@ -44,6 +48,7 @@ __all__ = [
     "detect_tipo",
     "extract_pre",
     "parse_atto",
+    "parse_elenco_30giorni",
     "parse_feed",
     "parse_sommario",
 ]
