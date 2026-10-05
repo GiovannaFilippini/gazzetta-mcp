@@ -640,10 +640,11 @@ class GazzettaService:
             if source is None or serie not in (None, Serie.SG):
                 continue
             try:
-                found, total = await source.cerca(testo, filtri)
+                found, total, extra = await source.cerca(testo, filtri)
             except GuError as exc:
                 note.append(f"Ricerca nell'archivio non riuscita ({label}): {user_message(exc)}")
                 continue
+            note.extend(extra)
             used.append(f"{label} ({total} atti trovati, mostrati i piu' pertinenti)")
             for h in found:
                 if h.codice not in seen:
@@ -662,6 +663,7 @@ class GazzettaService:
         al: str | None = None,
         limite: int = 20,
         aggiorna: bool = True,
+        solo_vigenti: bool = True,
     ) -> dict[str, Any]:
         if not (testo or "").strip():
             raise ServiceError("Indica il testo da cercare.")
@@ -673,6 +675,7 @@ class GazzettaService:
             dal=_parse_date(dal, "dal"),
             al=_parse_date(al, "al"),
             limite=limite,
+            solo_vigenti=solo_vigenti,
         )
         loaded: list[RecentIssues] = []
         note: list[str] = []

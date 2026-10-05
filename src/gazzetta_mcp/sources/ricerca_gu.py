@@ -15,7 +15,7 @@ import httpx
 
 from ..config import Settings
 from ..interfaces import Cache
-from ..models import RawPage, SearchFilters, SearchHit
+from ..models import ArchiveResult, RawPage, SearchFilters
 from ..parsing.ricerca import parse_ricerca
 from ..searchtext import search_words
 from .gu import GuHttpError
@@ -68,9 +68,9 @@ class RicercaGuClient:
             "annoPubblicazioneA": str(filtri.al.year if filtri.al else today),
         }
 
-    async def cerca(self, testo: str, filtri: SearchFilters) -> tuple[list[SearchHit], int]:
+    async def cerca(self, testo: str, filtri: SearchFilters) -> ArchiveResult:
         if not search_words(testo):
-            return [], 0
+            return ArchiveResult([], 0, [])
         fields = self._fields(testo, filtri)
         body = urlencode(fields)
         key = f"{self._post_url}#{hashlib.sha256(body.encode()).hexdigest()}"
@@ -108,4 +108,4 @@ class RicercaGuClient:
             hits = [h for h in hits if h.data >= filtri.dal]
         if filtri.al:
             hits = [h for h in hits if h.data <= filtri.al]
-        return hits[: filtri.limite], total
+        return ArchiveResult(hits[: filtri.limite], total, [])

@@ -33,6 +33,10 @@ class Settings:
     archivio_normattiva: bool = True
     # Search form of the GU site (off by default: terms of use still to be confirmed with IPZS).
     ricerca_gu: bool = False
+    # The Normattiva search is slow with date filters (tens of seconds): longer timeout.
+    archivio_timeout_seconds: float = 90.0
+    # Default period searched in the archives when the caller gives no dal.
+    archivio_giorni: int = 365
     requests_per_second: float = 1.0
     timeout_seconds: float = 20.0
     cache_path: Path = field(default_factory=_default_cache_path)
@@ -55,6 +59,10 @@ class Settings:
                 env("GAZZETTA_MCP_ARCHIVIO_NORMATTIVA"), d.archivio_normattiva
             ),
             ricerca_gu=_flag(env("GAZZETTA_MCP_RICERCA_GU"), d.ricerca_gu),
+            archivio_timeout_seconds=float(
+                env("GAZZETTA_MCP_ARCHIVIO_TIMEOUT", d.archivio_timeout_seconds)
+            ),
+            archivio_giorni=int(env("GAZZETTA_MCP_ARCHIVIO_GIORNI", d.archivio_giorni)),
             requests_per_second=float(env("GAZZETTA_MCP_RPS", d.requests_per_second)),
             timeout_seconds=float(env("GAZZETTA_MCP_TIMEOUT", d.timeout_seconds)),
             cache_path=Path(env("GAZZETTA_MCP_CACHE_PATH", str(d.cache_path))),

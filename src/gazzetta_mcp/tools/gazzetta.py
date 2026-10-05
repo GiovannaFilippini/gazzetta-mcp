@@ -140,6 +140,7 @@ def register(mcp: FastMCP, get_service: ServiceGetter) -> None:
         al: str | None = None,
         limite: int = 20,
         aggiorna: bool = True,
+        solo_vigenti: bool = True,
     ) -> dict[str, Any]:
         """Cerca per parole chiave tra gli atti della Gazzetta Ufficiale, anche a cache vuota.
 
@@ -151,7 +152,8 @@ def register(mcp: FastMCP, get_service: ServiceGetter) -> None:
         circa 30 giorni; S4: ultimi 9) non ancora in cache. Si cerca nei titoli e negli enti
         (singolare e plurale sono equivalenti; se nessun titolo ha tutte le parole, ripiega su
         quelli che ne hanno almeno una), NON nel testo completo. In piu' interroga l'archivio
-        degli atti normativi su Normattiva (leggi, decreti, anche vecchi, per titolo): quei
+        degli atti normativi su Normattiva (leggi e decreti per titolo; senza dal copre l'ultimo
+        anno; con solo_vigenti=true, predefinito, esclude gli atti gia' abrogati): quei
         risultati hanno origine 'normattiva' e per leggerli con leggi_atto va passata anche
         la data. La risposta dice quali date e quali archivi sono stati usati: la copertura
         puo' restare parziale (avvisi e concorsi vecchi non ci sono), dillo all'utente. Con
@@ -160,7 +162,9 @@ def register(mcp: FastMCP, get_service: ServiceGetter) -> None:
         Filtri facoltativi: serie (SG, S1-S5, P2), tipo (es. DECRETO, LEGGE, AVVISO),
         dal / al (AAAA-MM-GG), limite (massimo 100).
         """
-        return await _guard(get_service().cerca(testo, serie, tipo, dal, al, limite, aggiorna))
+        return await _guard(
+            get_service().cerca(testo, serie, tipo, dal, al, limite, aggiorna, solo_vigenti)
+        )
 
 
 __all__ = ["ServiceError", "register"]

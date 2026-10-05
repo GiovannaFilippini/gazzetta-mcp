@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from enum import Enum
+from typing import NamedTuple
 
 DISCLAIMER = (
     "Fonte: Gazzetta Ufficiale della Repubblica Italiana (gazzettaufficiale.it). "
@@ -107,6 +108,7 @@ class SearchFilters:
     dal: date | None = None
     al: date | None = None
     limite: int = 20
+    solo_vigenti: bool = False  # archives: leave out acts already repealed
 
 
 @dataclass(frozen=True)
@@ -119,6 +121,14 @@ class SearchHit:
     link: str
     punteggio: float = 0.0
     origine: str = "cache"  # where the hit comes from: cache | normattiva | ricerca_gu
+
+
+class ArchiveResult(NamedTuple):
+    """Outcome of an archive search."""
+
+    hits: list[SearchHit]
+    totale: int  # acts found by the archive before leaving out the repealed ones
+    note: list[str]
 
 
 @dataclass(frozen=True)

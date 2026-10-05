@@ -6,6 +6,7 @@ from datetime import date
 from typing import Protocol
 
 from .models import (
+    ArchiveResult,
     Atto,
     Feed,
     NormattivaLink,
@@ -62,7 +63,7 @@ class Cache(Protocol):
 class ArchiveSearch(Protocol):
     """Searches acts that are not in the local cache (older than the recent issues)."""
 
-    async def cerca(self, testo: str, filtri: SearchFilters) -> tuple[list[SearchHit], int]: ...
+    async def cerca(self, testo: str, filtri: SearchFilters) -> ArchiveResult: ...
 
 
 class NormattivaLinker(Protocol):
