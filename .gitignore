@@ -1,0 +1,21 @@
+# Claude Code
+.claude/
+.claude-worktrees/
+.worktrees/
+CLAUDE.md
+CLAUDE.local.md
+**/CLAUDE.md
+**/CLAUDE.local.md
+.mcp.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+*.sqlite3
+.env

@@ -1,0 +1,31 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "gazzetta-mcp"
+version = "0.1.0"
+description = "Free, local MCP server to consult and search the Italian Gazzetta Ufficiale. Unofficial."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = ["fastmcp>=2", "httpx>=0.27", "selectolax>=0.3"]
+
+[project.scripts]
+gazzetta-mcp = "gazzetta_mcp.server:main"
+
+[dependency-groups]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.5"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/gazzetta_mcp"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["live: calls the real sites; disabled by default (run with --live)"]
+
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
