@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import html
 import re
 from datetime import date, datetime, timedelta, timezone
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 import httpx
 
@@ -109,6 +110,18 @@ class GuClient:
             url += f"&atto.tipoProvvedimento={quote(tipo, safe='')}"
         return url
 
+    def url_atto_menu(self, codice: str, data: date, serie: Serie) -> str:
+        """The article menu of an act, which carries the whole-act export form."""
+        segment = ATTO_URL_SEGMENT.get(serie)
+        if not segment:
+            raise UnsupportedSerieError(f"The act text URL for series {serie.value} is not known.")
+        return (
+            f"{self._base}/atto/vediMenuHTML"
+            f"?atto.dataPubblicazioneGazzetta={data:%Y-%m-%d}"
+            f"&atto.codiceRedazionale={quote(codice, safe='')}"
+            f"&tipoSerie={segment}&tipoVigenza=originario"
+        )
+
     # --- Fetching -----------------------------------------------------------------
 
     async def get_feed(self, serie: Serie) -> RawPage:
@@ -127,9 +140,32 @@ class GuClient:
     async def get_atto_testo(
         self, codice: str, data: date, serie: Serie, tipo: str | None
     ) -> RawPage:
-        return await self._fetch(self.url_atto_testo(codice, data, serie, tipo), STATIC_TTL_SECONDS)
+        """The whole text of an act.
 
-    async def _fetch(self, url: str, max_age_seconds: int) -> RawPage:
+        ``caricaArticoloDefault`` returns only the first article, so acts with an article
+        menu are fetched through the site's export form (all articles and annexes in one
+        page). Acts without a menu (e.g. comunicati, concorsi) have a single text page.
+        """
+        try:
+            menu = await self._fetch(self.url_atto_menu(codice, data, serie), STATIC_TTL_SECONDS)
+        except GuNotFoundError:
+            menu = None
+        form = parse_export_form(menu.content) if menu is not None else None
+        if form is None:
+            return await self._fetch(
+                self.url_atto_testo(codice, data, serie, tipo), STATIC_TTL_SECONDS
+            )
+        action, fields = form
+        # The export URL is the same for every act: the cache key must name the act.
+        key = f"{self._base}{action}?codiceRedazionale={codice}&dataPubblicazioneGazzetta={data}"
+        return await self._fetch(
+            key, STATIC_TTL_SECONDS, post=(f"{self._base}{action}", urlencode(fields))
+        )
+
+    async def _fetch(
+        self, url: str, max_age_seconds: int, post: tuple[str, str] | None = None
+    ) -> RawPage:
+        """GET ``url``, or POST ``post`` = (target, form body) cached under the key ``url``."""
         if self._cache is not None:
             hit = self._cache.get_http(url, max_age_seconds)
             if hit is not None:
@@ -142,7 +178,14 @@ class GuClient:
                 )
         await self._limiter.acquire()
         try:
-            response = await self._http.get(url)
+            if post is None:
+                response = await self._http.get(url)
+            else:
+                response = await self._http.post(
+                    post[0],
+                    content=post[1],
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                )
         except httpx.HTTPError as exc:
             raise GuHttpError(f"Request to {url} failed: {exc}") from exc
         if response.status_code == 404:
@@ -158,6 +201,33 @@ class GuClient:
         if self._cache is not None:
             self._cache.put_http(page)
         return page
+
+
+# --- Whole-act export form -------------------------------------------------------
+
+_EXPORT_FORM = re.compile(
+    r'<form[^>]*id="menuExportForm"[^>]*action="([^"]+)"[^>]*>(.*?)</form>', re.DOTALL
+)
+_EXPORT_ARTICLE = re.compile(r'<input[^>]*name="articoliSelected"[^>]*value="([^"]*)"')
+_EXPORT_HIDDEN = re.compile(r'<input type="hidden"\s+name="(\w+)"\s+value="([^"]*)"')
+
+
+def parse_export_form(raw: bytes) -> tuple[str, list[tuple[str, str]]] | None:
+    """Return (action path, form fields) to export a whole act, or None if no articles.
+
+    Every article and annex box is selected, notes included, as "Seleziona tutti" does.
+    """
+    m = _EXPORT_FORM.search(raw.decode("utf-8", errors="replace"))
+    if not m:
+        return None
+    body = m.group(2)
+    articles = [html.unescape(v) for v in _EXPORT_ARTICLE.findall(body)]
+    if not articles:
+        return None
+    fields = [("articoliSelected", a) for a in articles]
+    fields += [(n, html.unescape(v)) for n, v in _EXPORT_HIDDEN.findall(body)]
+    fields += [("noteSelected", "1"), ("creaHTML", "Visualizza")]
+    return html.unescape(m.group(1)), fields
 
 
 # --- Issue number resolution ------------------------------------------------------

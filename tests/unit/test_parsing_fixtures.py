@@ -135,6 +135,54 @@ def test_atto_raw_mode_returns_pre_unmodified():
     assert "  Visto il decreto  legislativo" in a.testo
 
 
+def test_atto_sg_export_has_every_article_and_annex():
+    # caricaArticoloDefault (atto_testo_*) stops after Art. 1; the export page has it all.
+    a = P.parse_atto(
+        read("atto_scheda_26A05182_sg.html"),
+        read("atto_stampa_26A05182_sg.html"),
+        "26A05182",
+        Serie.SG,
+        date(2026, 10, 3),
+        BASE,
+    )
+    assert a.testo.startswith("IL DIRETTORE GENERALE\ndello sviluppo rurale\n\nVisto il decreto")
+    assert "Decreta:\n\nArt. 1\n\n1. Ai sensi" in a.testo
+    assert "\n\nArt. 2\n\n1. Il registro nazionale" in a.testo
+    assert "Allegato 1" in a.testo
+    assert "Vigente al" not in a.testo
+    first_only = P.parse_atto(
+        b"", read("atto_testo_26A05182_sg.html"), "X", Serie.SG, date(2026, 1, 1), BASE
+    ).testo
+    assert "Art. 2" not in first_only
+
+
+def test_extract_export_keeps_every_word_and_headings():
+    from gazzetta_mcp.parsing import extract_export, extract_pre
+
+    raw = extract_export(read("atto_stampa_26A05182_sg.html"))
+    first = extract_pre(read("atto_testo_26A05182_sg.html"))
+    assert raw.split()[: len(first.split())] == first.split()
+    assert extract_export(read("atto_testo_26A05182_sg.html")) == ""
+    page = (
+        '<div class="wrapper_pre"><p><span class="dentro">Capo I<br />NORME<br /></span></p>'
+        "<PRE>  Art. 1\n  testo</PRE><PRE> </PRE></div>"
+    )
+    assert extract_export(page) == "Capo I\nNORME\n\n  Art. 1\n  testo"
+
+
+def test_atto_comunicato_single_page():
+    a = P.parse_atto(
+        read("atto_scheda_26A05144_sg.html"),
+        read("atto_testo_26A05144_sg.html"),
+        "26A05144",
+        Serie.SG,
+        date(2026, 10, 3),
+        BASE,
+    )
+    assert a.tipo == "COMUNICATO"
+    assert len(a.testo) > 200
+
+
 def test_atto_s4_scheda_only():
     a = P.parse_atto(
         read("atto_scheda_26E05478_s4.html"), b"", "26E05478", Serie.S4, date(2026, 10, 2), BASE

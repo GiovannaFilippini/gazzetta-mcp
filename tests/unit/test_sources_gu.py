@@ -14,6 +14,7 @@ from gazzetta_mcp.sources.gu import (
     GuNotFoundError,
     NumeroNotFoundError,
     UnsupportedSerieError,
+    parse_export_form,
     parse_feed_channel,
     resolve_numero,
     sommario_matches,
@@ -127,9 +128,77 @@ async def test_all_fetch_methods_hit_expected_urls():
     assert [r.url.path for r in seen] == [
         "/eli/gu/2026/10/03/230/SG/html",
         "/eli/id/2026/10/03/26A05182/SG",
+        "/atto/vediMenuHTML",
         "/atto/serie_generale/caricaArticoloDefault/originario",
     ]
-    assert seen[2].url.params["atto.tipoProvvedimento"] == "DECRETO"
+    assert seen[2].url.params["atto.codiceRedazionale"] == "26A05182"
+    assert seen[2].url.params["tipoSerie"] == "serie_generale"
+    assert seen[3].url.params["atto.tipoProvvedimento"] == "DECRETO"
+
+
+def test_parse_export_form_fixtures():
+    action, fields = parse_export_form(fixture("atto_menu_26A05182_sg.html"))
+    assert action == "/atto/stampa/serie_generale/originario"
+    articles = [v for k, v in fields if k == "articoliSelected"]
+    assert len(articles) == 3  # Art. 1, Art. 2 and Allegato 1
+    assert "art.flagTipoArticolo=1" in articles[2]
+    assert "&amp;" not in articles[0]
+    assert ("codiceRedazionale", "26A05182") in fields
+    assert ("dataPubblicazioneGazzetta", "2026-10-03") in fields
+    assert parse_export_form(fixture("atto_menu_26A05144_sg.html")) is None
+    assert parse_export_form(b"") is None
+
+
+async def test_atto_testo_with_menu_posts_the_export_form():
+    def handler(request):
+        if request.url.path == "/atto/vediMenuHTML":
+            return httpx.Response(200, content=fixture("atto_menu_26A05182_sg.html"))
+        return httpx.Response(200, content=fixture("atto_stampa_26A05182_sg.html"))
+
+    cache = FakeCache()
+    client, seen = make_client(handler, cache=cache)
+    page = await client.get_atto_testo("26A05182", D, Serie.SG, "DECRETO")
+    assert [(r.method, r.url.path) for r in seen] == [
+        ("GET", "/atto/vediMenuHTML"),
+        ("POST", "/atto/stampa/serie_generale/originario"),
+    ]
+    assert seen[1].headers["content-type"] == "application/x-www-form-urlencoded"
+    assert seen[1].content.count(b"articoliSelected=") == 3
+    assert page.content == fixture("atto_stampa_26A05182_sg.html")
+    # the export URL is shared by every act: the cache key must name the act
+    assert "codiceRedazionale=26A05182" in page.url
+    again = await client.get_atto_testo("26A05182", D, Serie.SG, "DECRETO")
+    assert again.from_cache and len(seen) == 2
+    await client.aclose()
+
+
+async def test_atto_testo_without_menu_uses_single_page():
+    def handler(request):
+        if request.url.path == "/atto/vediMenuHTML":
+            return httpx.Response(200, content=fixture("atto_menu_26A05144_sg.html"))
+        return httpx.Response(200, content=fixture("atto_testo_26A05144_sg.html"))
+
+    client, seen = make_client(handler)
+    page = await client.get_atto_testo("26A05144", D, Serie.SG, "COMUNICATO")
+    assert [r.url.path for r in seen] == [
+        "/atto/vediMenuHTML",
+        "/atto/serie_generale/caricaArticoloDefault/originario",
+    ]
+    assert page.content == fixture("atto_testo_26A05144_sg.html")
+    await client.aclose()
+
+
+async def test_atto_testo_menu_not_found_falls_back():
+    def handler(request):
+        if request.url.path == "/atto/vediMenuHTML":
+            return httpx.Response(404)
+        return httpx.Response(200, content=b"<pre>x</pre>")
+
+    client, seen = make_client(handler)
+    page = await client.get_atto_testo("26A05182", D, Serie.SG, None)
+    assert page.content == b"<pre>x</pre>"
+    assert len(seen) == 2
+    await client.aclose()
 
 
 async def test_not_found_and_http_errors():

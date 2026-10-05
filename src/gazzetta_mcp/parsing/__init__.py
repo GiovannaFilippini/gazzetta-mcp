@@ -10,7 +10,7 @@ from .atto import parse_atto
 from .elenco import parse_elenco_30giorni
 from .feed import parse_feed
 from .sommario import parse_sommario
-from .text import clean_text, extract_pre
+from .text import clean_text, extract_export, extract_pre
 from .tipo import detect_tipo
 
 
@@ -46,6 +46,7 @@ __all__ = [
     "ParseError",
     "clean_text",
     "detect_tipo",
+    "extract_export",
     "extract_pre",
     "parse_atto",
     "parse_elenco_30giorni",
