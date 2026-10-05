@@ -37,10 +37,10 @@ Please keep these defaults respectful of the source. See [docs/fonti.md](docs/fo
 |---|---|---|
 | `ultime_pubblicazioni` | `serie`, `giorni` | Latest publications of a series (SG, S1-S5, P2) over the last N days |
 | `sommario` | `data`, `serie` | Table of contents of the issue of a given date and series |
-| `leggi_atto` | `codice` | Text of an act from its editorial code (e.g. `26A05182`) |
+| `leggi_atto` | `codice`, `data`, `serie`, `offset` | Text of an act from its editorial code (e.g. `26A05182`) |
 | `cerca_concorsi` | `parole_chiave`, `regione` | Search public competitions (4th series) by keywords and region |
 | `rimando_normattiva` | `atto` | Builds the permanent Normattiva link for an act (link only, no download) |
-| `cerca` | `testo`, `filtri` | Full-text search over the locally cached content, with filters |
+| `cerca` | `testo`, `serie`, `tipo`, `dal`, `al`, `limite` | Full-text search over the locally cached content, with filters |
 
 Series codes: `SG` Serie Generale, `S1` Corte Costituzionale, `S2` Unione Europea, `S3` Regioni,
 `S4` Concorsi ed esami, `S5` Contratti pubblici, `P2` Parte II.
@@ -154,10 +154,10 @@ fonte e il link ufficiale: verifica sempre il testo ufficiale prima di farci aff
 |---|---|---|
 | `ultime_pubblicazioni` | `serie`, `giorni` | Ultime pubblicazioni di una serie negli ultimi N giorni |
 | `sommario` | `data`, `serie` | Sommario del numero di una data e serie |
-| `leggi_atto` | `codice` | Testo di un atto dal codice redazionale (es. `26A05182`) |
+| `leggi_atto` | `codice`, `data`, `serie`, `offset` | Testo di un atto dal codice redazionale (es. `26A05182`) |
 | `cerca_concorsi` | `parole_chiave`, `regione` | Cerca concorsi (4a serie) per parole chiave e regione |
 | `rimando_normattiva` | `atto` | Costruisce il link permanente a Normattiva (solo link) |
-| `cerca` | `testo`, `filtri` | Ricerca nel testo dei contenuti in cache locale, con filtri |
+| `cerca` | `testo`, `serie`, `tipo`, `dal`, `al`, `limite` | Ricerca nel testo dei contenuti in cache locale, con filtri |
 
 Esempi di richieste in linguaggio naturale: [docs/uso.md](docs/uso.md).
 

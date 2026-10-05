@@ -16,10 +16,12 @@ Le richieste partono solo quando le chiedi, con limite di frequenza e cache loca
 
 Se il numero non si trova, usa prima `ultime_pubblicazioni`.
 
-## leggi_atto(codice)
+## leggi_atto(codice, data, serie, offset)
 
 - "Leggimi l'atto con codice redazionale 26A05182."
 - "Riassumi in tre punti il testo dell'atto 26A05182 e indica il link ufficiale."
+
+Se l'atto non e' ancora in cache serve la data di pubblicazione (AAAA-MM-GG): si ricava con `ultime_pubblicazioni` o `sommario`. I testi molto lunghi sono divisi in pagine (parametro `offset`).
 
 ## cerca_concorsi(parole_chiave, regione)
 
@@ -31,7 +33,7 @@ Se il numero non si trova, usa prima `ultime_pubblicazioni`.
 - "Dammi il link Normattiva della legge 5 agosto 2026, n. 140."
 - "Dove trovo il testo vigente di questo decreto su Normattiva?" (viene costruito solo il link)
 
-## cerca(testo, filtri)
+## cerca(testo, serie, tipo, dal, al, limite)
 
 - "Cerca negli atti gia' consultati la parola 'semplificazione', solo Serie Generale."
 - "Trova nella cache gli atti che citano 'bonus' pubblicati a ottobre 2026."
