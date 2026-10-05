@@ -21,6 +21,7 @@ from .interfaces import ArchiveSearch, Cache, NormattivaLinker, Parser, SourceCl
 from .models import DISCLAIMER, Atto, SearchFilters, SearchHit, Serie, Sommario
 from .parsing import GuParser, ParseError
 from .regioni import normalize, normalizza_regione, regione_ente
+from .searchtext import count_matches, word_groups
 from .sources.archivio import ArchivioClient
 from .sources.gu import (
     GuClient,
@@ -721,6 +722,8 @@ class GazzettaService:
                 if h.codice not in seen:
                     seen.add(h.codice)
                     merged.append(h)
+        groups = word_groups(testo)  # best matches first, whatever the source
+        merged.sort(key=lambda h: -count_matches(h.titolo, groups))
         if filtri.solo_vigenti and repealed:
             kept = [h for h in merged if h.origine != "cache" or h.codice not in repealed]
             if len(kept) < len(merged):

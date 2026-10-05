@@ -19,7 +19,7 @@ import httpx
 from ..config import Settings
 from ..interfaces import Cache
 from ..models import ArchiveResult, RawPage, SearchFilters, SearchHit, Serie
-from ..searchtext import search_words, stem
+from ..searchtext import count_matches, flatten, search_words, word_groups
 from .gu import GuError, GuHttpError
 from .ratelimit import RateLimiter
 
@@ -28,11 +28,6 @@ PAGE_SIZE = 40
 ABROGATI_PAGE_SIZE = 50
 CLASSE_ABROGATO = "3"  # classeProvvedimento: 1 no updates, 2 updated, 3 repealed
 ORIGINE = "normattiva"
-
-
-def _matches(title: str, words: list[str]) -> int:
-    low = title.lower()
-    return sum(1 for w in words if stem(w) in low)
 
 
 class ArchivioClient:
@@ -67,7 +62,7 @@ class ArchivioClient:
     def _body(self, testo: str, filtri: SearchFilters, dal: date, classe: str | None) -> dict:
         body: dict = {
             "orderType": "recente",
-            "titoloRicerca": " ".join(search_words(testo)),
+            "titoloRicerca": " ".join(flatten(word_groups(testo))),
             "dataInizioPubProvvedimento": dal.isoformat(),
             "paginazione": {
                 "paginaCorrente": 1,
@@ -144,7 +139,7 @@ class ArchivioClient:
             )
         elif repealed is not None:
             abrogati = {a.get("codiceRedazionale") for a in repealed.get("listaAtti") or []}
-        words = search_words(testo)
+        groups = word_groups(testo)
         total = int(data.get("numeroAttiTrovati") or 0)
         hits: list[tuple[int, SearchHit]] = []
         skipped = 0
@@ -158,7 +153,7 @@ class ArchivioClient:
             titolo = " ".join(str(a.get("titoloAtto") or "").strip("[] ").split())
             descr = a.get("descrizioneAtto") or ""
             data_gu = date.fromisoformat(a["dataGU"])
-            n = _matches(titolo + " " + descr, words)
+            n = count_matches(titolo + " " + descr, groups)
             hits.append(
                 (
                     n,

@@ -22,7 +22,7 @@ from ..models import (
     Sommario,
     SommarioVoce,
 )
-from ..searchtext import STOPWORDS, stem
+from ..searchtext import STOPWORDS, SYNONYMS, flatten, stem
 
 Clock = Callable[[], datetime]
 
@@ -131,6 +131,8 @@ def build_match_query(text: str, *, any_word: bool = False) -> str | None:
     if not words:
         return None
     kept = [w for w in words if w not in STOPWORDS] or words
+    if any_word:  # looser search: add the words the Gazzetta uses for everyday ones
+        kept = flatten([[w, *SYNONYMS.get(w, ())] for w in kept])
     terms = [f'"{stem(w)}"*' if stem(w) != w else f'"{w}"' for w in kept]
     return (" OR " if any_word else " ").join(terms)
 
