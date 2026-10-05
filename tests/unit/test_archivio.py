@@ -9,7 +9,8 @@ import pytest
 from gazzetta_mcp.cache.sqlite import SqliteCache
 from gazzetta_mcp.config import Settings
 from gazzetta_mcp.models import SearchFilters
-from gazzetta_mcp.sources.archivio import ArchivioClient, search_words
+from gazzetta_mcp.searchtext import search_words
+from gazzetta_mcp.sources.archivio import ArchivioClient
 from gazzetta_mcp.sources.gu import GuHttpError
 
 from ._service_helpers import NoLimit, make_service

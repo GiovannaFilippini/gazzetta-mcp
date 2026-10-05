@@ -32,6 +32,7 @@ from .sources.gu import (
     resolve_numero,
 )
 from .sources.normattiva import NormattivaLinkBuilder
+from .sources.ricerca_gu import RicercaGuClient
 
 # Feeds that are already cached are used for date lookups whatever their age.
 _ANY_AGE = 10**9
@@ -832,9 +833,12 @@ def build_service(settings: Settings | None = None) -> GazzettaService:
         except ValueError:
             pass
     archivio = ArchivioClient(settings, cache=cache) if settings.archivio_normattiva else None
-    closers = (client.aclose, cache.close) + ((archivio.aclose,) if archivio else ())
+    ricerca_gu = RicercaGuClient(settings, cache=cache) if settings.ricerca_gu else None
+    closers = (client.aclose, cache.close)
+    closers += tuple(c.aclose for c in (archivio, ricerca_gu) if c is not None)
     return GazzettaService(
         archivio=archivio,
+        ricerca_gu=ricerca_gu,
         client=client,
         parser=GuParser(),
         cache=cache,

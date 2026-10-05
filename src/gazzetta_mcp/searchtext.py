@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import re
+
+_WORD = re.compile(r"\w+", re.UNICODE)
+
 STOPWORDS = frozenset(
     [
         "a",
@@ -58,3 +62,9 @@ STOPWORDS = frozenset(
 def stem(word: str) -> str:
     """Crude Italian stem: drop the final vowel so singular and plural share a prefix."""
     return word[:-1] if len(word) >= 5 and word[-1] in "aeio" else word
+
+
+def search_words(text: str) -> list[str]:
+    """Meaningful words of a query: lowercase, no stopwords (kept if nothing else is left)."""
+    words = [w.lower() for w in _WORD.findall(text)]
+    return [w for w in words if w not in STOPWORDS] or words

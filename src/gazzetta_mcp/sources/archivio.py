@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 from datetime import date, datetime, timezone
 
 import httpx
@@ -17,20 +16,13 @@ import httpx
 from ..config import Settings
 from ..interfaces import Cache
 from ..models import RawPage, SearchFilters, SearchHit, Serie
-from ..searchtext import STOPWORDS, stem
+from ..searchtext import search_words, stem
 from .gu import GuError, GuHttpError
 from .ratelimit import RateLimiter
 
-_WORD = re.compile(r"\w+", re.UNICODE)
 SEARCH_TTL_SECONDS = 24 * 3600
 PAGE_SIZE = 40
 ORIGINE = "normattiva"
-
-
-def search_words(text: str) -> list[str]:
-    """Meaningful words of a query: lowercase, no stopwords (kept if nothing else is left)."""
-    words = [w.lower() for w in _WORD.findall(text)]
-    return [w for w in words if w not in STOPWORDS] or words
 
 
 def _matches(title: str, words: list[str]) -> int:
