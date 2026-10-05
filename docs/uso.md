@@ -32,19 +32,22 @@ Se il numero non si trova, usa prima `ultime_pubblicazioni`.
 
 La data non serve: viene ricordata dai risultati gia' visti, oppure cercata tra le ultime pubblicazioni. Per un atto non recente che non e' mai comparso in un risultato, cercalo prima con parole del titolo (`cerca`, `ultime_pubblicazioni`). I testi molto lunghi sono divisi in pagine (parametro `offset`).
 
-## cerca_concorsi(parole_chiave, regione)
+## cerca_concorsi(parole_chiave, regione, aperti, includi_altri_atti, limite)
 
 - "Cerca concorsi per istruttore amministrativo in Toscana."
 - "Ci sono bandi per infermiere pubblicati di recente in Lombardia?"
+- "Mostrami anche graduatorie e diari delle prove per dirigente medico." (`includi_altri_atti`)
+
+Funziona anche a cache vuota: non servono codici o numeri. Al primo uso scarica (su tua richiesta, con poche richieste distanziate) i sommari dei numeri degli ultimi 30 giorni della 4a serie, di solito 8-9, e li tiene in cache. Si cerca nel titolo e nell'ente di ogni atto, non nel testo del bando. Ogni risposta dice quali numeri sono stati esaminati e quanti bandi, con il link ufficiale di ciascuno: il bando completo (requisiti, scadenza, modalita' di domanda) va letto sul sito ufficiale. La regione e' stimata dal nome dell'ente; gli atti di regione non determinata sono contati a parte. Con `aperti=false` si includono anche i numeri piu' vecchi gia' in cache.
 
 ## rimando_normattiva(atto)
 
 - "Dammi il link Normattiva della legge 5 agosto 2026, n. 140."
 - "Dove trovo il testo vigente di questo decreto su Normattiva?" (viene costruito solo il link)
 
-## cerca(testo, serie, tipo, dal, al, limite)
+## cerca(testo, serie, tipo, dal, al, limite, aggiorna)
 
-- "Cerca negli atti gia' consultati la parola 'semplificazione', solo Serie Generale."
-- "Trova nella cache gli atti che citano 'bonus' pubblicati a ottobre 2026."
+- "Cerca la parola 'semplificazione' negli ultimi numeri della Serie Generale."
+- "Trova gli atti che citano 'bonus' pubblicati a ottobre 2026."
 
-La ricerca copre solo cio' che e' gia' nella cache locale.
+Con `aggiorna=true` (predefinito) e serie SG, S4 o non indicata, prima scarica i sommari dei numeri recenti non ancora in cache (SG: gli ultimi 7, S4: gli ultimi 9; al massimo 12 per chiamata), quindi funziona anche a cache vuota. Si cerca nei titoli, negli enti e nei riassunti, non nel testo completo degli atti (solo per quelli gia' letti con `leggi_atto`). La risposta dice quali date sono state caricate. Con `aggiorna=false` non si usa la rete e la ricerca copre solo cio' che e' gia' nella cache locale.

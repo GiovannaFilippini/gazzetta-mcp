@@ -54,6 +54,8 @@ Regole d'uso lette: GU e Normattiva consentono la riproduzione se si cita la fon
 | 040 | Link Normattiva senza data | [040](decisioni/040-normattiva-urn-senza-data.md) |
 | 050 | Pubblicazione su PyPI preparata ma spenta | [050](decisioni/050-release-non-attivo.md) |
 | 060 | Server MCP, strumenti e limiti | [060](decisioni/060-server-mcp.md) |
+| 070 | Ricerca concorsi da cache vuota (ultimi 30 giorni) | [070](decisioni/070-concorsi-ultimi-30-giorni.md) |
+| 071 | Aggiornamento automatico di `cerca` | [071](decisioni/071-aggiornamento-automatico-cerca.md) |
 
 Ogni file spiega le alternative scartate e come tornare indietro. Ogni parte (fonti, lettura delle pagine, memoria locale, strumenti) è separata dalle altre: sostituirne una non obbliga a riscrivere il resto.
 
@@ -65,6 +67,6 @@ Mi sono fermato, come richiesto, su queste azioni:
 2. **Pubblicare su PyPI.** Il flusso è pronto in `.github/workflows/release.yml` ma si avvia solo a mano. Prima serve configurare su PyPI il «trusted publisher» (nessun token da salvare) e creare l'ambiente `pypi` su GitHub: i passi sono in decisione 050.
 3. **Verifica manuale con un client reale.** Ho provato il server con test automatici e con un avvio reale, ma non con un assistente vero collegato per giornate di uso. Conviene un giro di prova.
 4. **Possibili sviluppi:** importare i dati aperti di Normattiva per il testo vigente (decisione 005); migliorare il riconoscimento del numero della Gazzetta per date lontane; testo di Unione Europea, Contratti pubblici e Parte II (oggi non disponibile); ricerca per prefisso (`gat*`), oggi assente.
-5. **Piccoli limiti noti:** nella pulizia del testo le tabelle in caratteri semplici perdono l'allineamento (esiste la modalità «testo originale»); `cerca_concorsi` copre solo ciò che è già in memoria più l'ultimo feed; il Codice di condotta è stato scritto a memoria dal testo Contributor Covenant 2.1 e andrebbe confrontato con l'originale.
+5. **Piccoli limiti noti:** nella pulizia del testo le tabelle in caratteri semplici perdono l'allineamento (esiste la modalità «testo originale»); `cerca_concorsi` copre i numeri degli ultimi 30 giorni (decisione 070), non l'archivio; il Codice di condotta è stato scritto a memoria dal testo Contributor Covenant 2.1 e andrebbe confrontato con l'originale.
 6. **Un mio errore da segnalare:** all'inizio ho sovrascritto un `.claude/settings.json` che esisteva già, senza leggerlo. Quel file è escluso da GitHub, ma se contenevi impostazioni vanno rimesse.
 7. **Attivare gli aggiornamenti automatici dei test** (CI) è già fatto per ogni pull request; controlla che i test passino su GitHub alla prima esecuzione.

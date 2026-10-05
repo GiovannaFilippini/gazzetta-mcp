@@ -88,17 +88,32 @@ def register(mcp: FastMCP, get_service: ServiceGetter) -> None:
         return await _guard(get_service().leggi_atto(codice, data, serie, offset))
 
     @mcp.tool
-    async def cerca_concorsi(parole_chiave: str, regione: str | None = None) -> dict[str, Any]:
+    async def cerca_concorsi(
+        parole_chiave: str,
+        regione: str | None = None,
+        aperti: bool = True,
+        includi_altri_atti: bool = False,
+        limite: int = 30,
+    ) -> dict[str, Any]:
         """Cerca bandi di concorso pubblico (4a Serie Speciale, Concorsi ed esami).
 
         Usalo per richieste come "concorsi per infermiere in Lombardia", "bandi per istruttore
         amministrativo", "ci sono concorsi per insegnanti in Toscana". Basta qualche parola
         chiave (profilo, ente, citta') e, se l'utente la nomina, la regione. Non chiedere date
-        o codici. I risultati possono essere parziali: riguardano le pubblicazioni recenti e
-        quanto e' gia' stato consultato, non tutto l'archivio; dillo all'utente e suggerisci il
-        link ufficiale per verificare. Per leggere un bando usa leggi_atto con il suo codice.
+        o codici. Al primo uso scarica, con poche richieste distanziate, i sommari dei numeri
+        degli ultimi 30 giorni (tipicamente 8-9) e li tiene in cache. Cerca nel titolo e
+        nell'ente di ogni atto, non nel testo del bando: ogni risposta dichiara i numeri
+        esaminati, quindi i risultati possono essere parziali; dillo all'utente. La regione e'
+        stimata dal nome dell'ente; gli atti di regione non determinata sono contati a parte.
+        aperti: solo numeri degli ultimi 30 giorni (i bandi sono di norma ancora aperti);
+        con false si aggiungono i numeri piu' vecchi gia' in cache.
+        includi_altri_atti: aggiunge diari delle prove, graduatorie, rettifiche, commissioni.
+        limite: massimo di risultati (fino a 100).
+        Il bando completo va letto sul sito ufficiale (link in ogni risultato) o con leggi_atto.
         """
-        return await _guard(get_service().cerca_concorsi(parole_chiave, regione))
+        return await _guard(
+            get_service().cerca_concorsi(parole_chiave, regione, aperti, includi_altri_atti, limite)
+        )
 
     @mcp.tool
     async def rimando_normattiva(atto: str) -> dict[str, Any]:
@@ -124,25 +139,24 @@ def register(mcp: FastMCP, get_service: ServiceGetter) -> None:
         dal: str | None = None,
         al: str | None = None,
         limite: int = 20,
+        aggiorna: bool = True,
     ) -> dict[str, Any]:
-        """Cerca per parole chiave tra gli atti della Gazzetta Ufficiale gia' conosciuti.
+        """Cerca per parole chiave tra gli atti della Gazzetta Ufficiale, anche a cache vuota.
 
         Usalo quando l'utente descrive un argomento senza codici: "decreti sul bonus
         edilizia", "atti che parlano di semplificazione", "qualcosa sulla caccia in Veneto".
         Mette i risultati in ordine di pertinenza; da un risultato prendi il codice per
-        leggi_atto. Copertura parziale: cerca solo tra i contenuti che il server ha gia'
-        incontrato (feed recenti, sommari e atti consultati), non nell'intero archivio: se non
-        trova nulla prova ultime_pubblicazioni o sommario e poi riprova, e di' all'utente che i
-        risultati possono essere incompleti.
+        leggi_atto. Con aggiorna=true (predefinito) e serie SG, S4 o non indicata, scarica
+        prima, con poche richieste distanziate, i sommari dei numeri recenti (SG: ultimi 7;
+        S4: ultimi 9) non ancora in cache. Si cerca nei titoli, negli enti e nei riassunti,
+        NON nel testo completo degli atti (solo quelli gia' letti con leggi_atto). La risposta
+        dice quali date sono state caricate: la copertura e' parziale e i risultati possono essere incompleti, dillo
+        all'utente. Con aggiorna=false non si fa rete.
 
-        Filtri facoltativi: serie (SG, S1-S5, P2), tipo (es. DECRETO, LEGGE, AVVISO), dal / al
-        (AAAA-MM-GG), limite (massimo 100).
+        Filtri facoltativi: serie (SG, S1-S5, P2), tipo (es. DECRETO, LEGGE, AVVISO),
+        dal / al (AAAA-MM-GG), limite (massimo 100).
         """
-
-        async def run() -> dict[str, Any]:
-            return get_service().cerca(testo, serie, tipo, dal, al, limite)
-
-        return await _guard(run())
+        return await _guard(get_service().cerca(testo, serie, tipo, dal, al, limite, aggiorna))
 
 
 __all__ = ["ServiceError", "register"]

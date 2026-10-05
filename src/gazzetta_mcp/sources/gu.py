@@ -15,6 +15,13 @@ from .ratelimit import RateLimiter
 
 # Issues and acts never change once published: cache them for a long time.
 STATIC_TTL_SECONDS = 30 * 24 * 3600
+# The "last 30 days" index changes only when a new issue comes out.
+ELENCO_TTL_SECONDS = 3600
+# Series with a verified /30giorni/<segment> page (docs/decisioni/070-concorsi-ultimi-30-giorni.md).
+ELENCO_30GIORNI_SEGMENT: dict[Serie, str] = {
+    Serie.SG: "serie_generale",
+    Serie.S4: "concorsi",
+}
 
 
 class GuError(Exception):
@@ -72,6 +79,14 @@ class GuClient:
     def url_feed(self, serie: Serie) -> str:
         return f"{self._base}/rss/{serie.value}"
 
+    def url_elenco_30giorni(self, serie: Serie) -> str:
+        segment = ELENCO_30GIORNI_SEGMENT.get(serie)
+        if not segment:
+            raise UnsupportedSerieError(
+                f"The last-30-days index for series {serie.value} is not known."
+            )
+        return f"{self._base}/30giorni/{segment}"
+
     def url_sommario(self, data: date, serie: Serie, numero: int) -> str:
         return f"{self._base}/eli/gu/{data:%Y/%m/%d}/{numero}/{serie.value}/html"
 
@@ -98,6 +113,10 @@ class GuClient:
 
     async def get_feed(self, serie: Serie) -> RawPage:
         return await self._fetch(self.url_feed(serie), self._settings.cache_ttl_feed_seconds)
+
+    async def get_elenco_30giorni(self, serie: Serie) -> RawPage:
+        """The page listing the issues of the last 30 days (one request, cached for an hour)."""
+        return await self._fetch(self.url_elenco_30giorni(serie), ELENCO_TTL_SECONDS)
 
     async def get_sommario(self, data: date, serie: Serie, numero: int) -> RawPage:
         return await self._fetch(self.url_sommario(data, serie, numero), STATIC_TTL_SECONDS)

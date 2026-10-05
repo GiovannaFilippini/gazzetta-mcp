@@ -15,10 +15,12 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from .cache.sqlite import CacheError, SqliteCache
+from .concorsi import BANDI, classify, estrai_posti, keyword_matcher
 from .config import Settings
 from .interfaces import Cache, NormattivaLinker, Parser, SourceClient
-from .models import DISCLAIMER, Atto, SearchFilters, Serie
+from .models import DISCLAIMER, Atto, SearchFilters, Serie, Sommario
 from .parsing import GuParser, ParseError
+from .regioni import normalize, normalizza_regione, regione_ente
 from .sources.gu import (
     GuClient,
     GuError,
@@ -99,6 +101,11 @@ class Limits:
     max_sommario_voci: int = 300
     concorsi_results: int = 30
     max_search_results: int = 100
+    # Issues whose table of contents is loaded automatically by cerca / cerca_concorsi.
+    recent_issues_s4: int = 9
+    recent_issues_sg: int = 7
+    max_recent_issues: int = 12  # hard cap of network fetches of issues per call
+    concorsi_window_days: int = 30  # a call is considered open this long after publication
 
 
 def _parse_serie(value: str | Serie | None, default: Serie | None = None) -> Serie | None:
@@ -418,45 +425,180 @@ class GazzettaService:
             [atto.link],
         )
 
+    # --- recent issues (cold start) ---------------------------------------------------
+
+    def _cached_issues(self, serie: Serie, since: date, until: date) -> list[Sommario]:
+        """Sommari already in the local cache for the days in [since, until], newest first."""
+        found: list[Sommario] = []
+        day = until
+        while day >= since:
+            som = self._cache.get_sommario(day, serie)
+            if som is not None:
+                found.append(som)
+            day -= timedelta(days=1)
+        return found
+
+    async def ensure_recent_sommari(
+        self, serie: Serie, max_issues: int | None = None
+    ) -> RecentIssues:
+        """Make sure the newest issues of ``serie`` are in the local cache.
+
+        One request for the "last 30 days" index (cached for an hour), then one request per
+        issue not yet cached, newest first, never more than ``Limits.max_recent_issues``.
+        The issue number comes from the index: nothing is guessed. Issues never change, so
+        a cached one costs nothing. Failures on single issues are reported, not raised.
+        """
+        default = (
+            self._limits.recent_issues_s4 if serie == Serie.S4 else self._limits.recent_issues_sg
+        )
+        wanted = max(1, min(max_issues if max_issues else default, self._limits.max_recent_issues))
+        today = self._today()
+        notes: list[str] = []
+        requests = 0
+        try:
+            raw = await self._client.get_elenco_30giorni(serie)
+        except UnsupportedSerieError:
+            raise
+        except GuError as exc:
+            notes.append(
+                "Non sono riuscito a leggere l'elenco dei numeri degli ultimi 30 giorni "
+                f"({user_message(exc)}): uso solo i numeri gia' presenti nella cache locale."
+            )
+            cached = self._cached_issues(serie, today - timedelta(days=30), today)[:wanted]
+            return RecentIssues(serie, cached, 0, notes, today)
+        if not raw.from_cache:
+            requests += 1
+        issues = self._parser.parse_elenco_30giorni(raw.content)[:wanted]
+        if not issues:
+            notes.append("L'elenco dei numeri degli ultimi 30 giorni risulta vuoto o illeggibile.")
+        sommari: list[Sommario] = []
+        failures = 0
+        for d, numero in issues:
+            som = self._cache.get_sommario(d, serie)
+            if som is None:
+                if failures >= 3:  # the site is struggling: stop asking
+                    notes.append(f"Numero {numero} del {d.isoformat()} non caricato.")
+                    continue
+                try:
+                    page = await self._client.get_sommario(d, serie, numero)
+                except GuError as exc:
+                    failures += 1
+                    notes.append(
+                        f"Numero {numero} del {d.isoformat()} non caricato ({user_message(exc)})."
+                    )
+                    continue
+                if not page.from_cache:
+                    requests += 1
+                som = self._parser.parse_sommario(page.content, serie, d, numero, self._base)
+                if not som.voci:
+                    notes.append(f"Il numero {numero} del {d.isoformat()} risulta vuoto: saltato.")
+                    continue
+                self._cache.put_sommario(som)
+            sommari.append(som)
+        return RecentIssues(serie, sommari, requests, notes, today)
+
     # --- 4. cerca_concorsi ----------------------------------------------------------
 
     async def cerca_concorsi(
-        self, parole_chiave: str, regione: str | None = None
+        self,
+        parole_chiave: str,
+        regione: str | None = None,
+        aperti: bool = True,
+        includi_altri_atti: bool = False,
+        limite: int = 30,
     ) -> dict[str, Any]:
-        if not (parole_chiave or "").strip():
-            raise ServiceError("Indica almeno una parola chiave (ad esempio 'istruttore').")
-        note: list[str] = []
-        fonte = [f"{self._base}/rss/S4"]
-        try:
-            feed, _ = await self._feed(Serie.S4)
-            fonte.insert(0, feed.link)
-        except GuError as exc:
+        if not normalize(parole_chiave or ""):
+            raise ServiceError("Indica almeno una parola chiave (ad esempio 'infermiere').")
+        match = keyword_matcher(parole_chiave)
+        reg = normalizza_regione(regione)  # ValueError (Italian) if not recognised
+        limite = max(1, min(int(limite), self._limits.max_search_results))
+
+        recent = await self.ensure_recent_sommari(Serie.S4)
+        today = self._today()
+        cutoff = today - timedelta(days=self._limits.concorsi_window_days)
+        sommari = [s for s in recent.sommari if s.data >= cutoff]
+        if not aperti:  # older issues already in the cache: no extra request
+            known = {s.data for s in sommari}
+            older = self._cached_issues(Serie.S4, today - timedelta(days=365), cutoff)
+            sommari += [s for s in older if s.data not in known]
+        sommari.sort(key=lambda s: s.data, reverse=True)
+
+        examined = bandi_examined = unknown_region = 0
+        matches: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for som in sommari:
+            for v in som.voci:
+                if v.codice in seen:
+                    continue
+                seen.add(v.codice)
+                examined += 1
+                tipo = classify(v.titolo)
+                is_bando = tipo in BANDI
+                bandi_examined += is_bando
+                if not (is_bando or includi_altri_atti):
+                    continue
+                if not match(f"{v.titolo} {v.emettitore} {v.rubrica}"):
+                    continue
+                area = regione_ente(v.emettitore, v.titolo)
+                if reg is not None and area != reg:
+                    unknown_region += area is None
+                    continue
+                matches.append(
+                    {
+                        "codice": v.codice,
+                        "ente": v.emettitore,
+                        "oggetto": v.titolo,
+                        "tipo": tipo,
+                        "posti": estrai_posti(v.titolo),
+                        "data_gu": som.data.isoformat(),
+                        "numero_gu": som.numero,
+                        "regione": area,
+                        "link": v.link,
+                    }
+                )
+        shown = matches[:limite]
+        note = list(recent.notes)
+        if reg is not None:
             note.append(
-                "Non sono riuscito ad aggiornare il feed dei concorsi "
-                f"({user_message(exc)}): uso solo la cache locale."
+                f"Regione non determinata per {unknown_region} atti che corrispondono alle parole "
+                "chiave: non sono mostrati. Ripeti la ricerca senza regione per vederli."
+                if unknown_region
+                else "Regione non determinata: nessun atto."
             )
-        query = parole_chiave.strip()
-        if regione and regione.strip():
-            query += f" {regione.strip()}"
-        hits = self._cache.search(
-            query, SearchFilters(serie=Serie.S4, limite=self._limits.concorsi_results)
-        )
+        if len(matches) > len(shown):
+            note.append(f"Mostrati {len(shown)} risultati su {len(matches)}: aumenta 'limite'.")
+        if not sommari:
+            note.append(
+                "Nessun numero della 4a Serie Speciale disponibile: nessun bando esaminato."
+            )
         return self._result(
             {
                 "parole_chiave": parole_chiave.strip(),
-                "regione": regione.strip() if regione and regione.strip() else None,
-                "copertura": (
-                    "Attenzione: i risultati coprono SOLO quanto e' gia' nella cache locale e "
-                    "nell'ultimo feed della 4a Serie Speciale (Concorsi ed esami). Non viene "
-                    "esplorato l'archivio della Gazzetta: bandi meno recenti o mai richiesti "
-                    "possono non comparire. Il filtro per regione e' una corrispondenza di "
-                    "testo sul nome della regione."
+                "regione": reg,
+                "aperti": aperti,
+                "includi_altri_atti": includi_altri_atti,
+                "copertura": _coverage_text(
+                    "4a Serie Speciale (Concorsi ed esami)", sommari, bandi_examined, examined
+                ),
+                "numeri_esaminati": [
+                    {"data": s.data.isoformat(), "numero": s.numero} for s in sommari
+                ],
+                "bandi_esaminati": bandi_examined,
+                "atti_esaminati": examined,
+                "richieste_effettuate": recent.richieste,
+                "regione_non_determinata": unknown_region if reg is not None else None,
+                "avviso_lettura": (
+                    "I dati sono estratti dal solo titolo e dall'ente del sommario: leggi sempre "
+                    "il bando completo (requisiti, scadenza, modalita' di domanda; il termine e' "
+                    "di norma 30 giorni dalla pubblicazione) sul sito ufficiale della Gazzetta "
+                    "Ufficiale o dell'ente. La regione e' stimata dal nome dell'ente."
                 ),
                 "note": note,
-                "totale": len(hits),
-                "risultati": [_hit(h) for h in hits],
+                "totale": len(matches),
+                "mostrati": len(shown),
+                "risultati": shown,
             },
-            fonte + [h.link for h in hits[:5]],
+            [s.link for s in sommari[:3]] + [h["link"] for h in shown[:5]] or [self._base],
         )
 
     # --- 5. rimando_normattiva ------------------------------------------------------
@@ -470,7 +612,7 @@ class GazzettaService:
 
     # --- 6. cerca -------------------------------------------------------------------
 
-    def cerca(
+    async def cerca(
         self,
         testo: str,
         serie: str | None = None,
@@ -478,43 +620,126 @@ class GazzettaService:
         dal: str | None = None,
         al: str | None = None,
         limite: int = 20,
+        aggiorna: bool = True,
     ) -> dict[str, Any]:
         if not (testo or "").strip():
             raise ServiceError("Indica il testo da cercare.")
         limite = max(1, min(int(limite), self._limits.max_search_results))
+        s = _parse_serie(serie)
         filtri = SearchFilters(
-            serie=_parse_serie(serie),
+            serie=s,
             tipo=tipo.strip() if tipo and tipo.strip() else None,
             dal=_parse_date(dal, "dal"),
             al=_parse_date(al, "al"),
             limite=limite,
         )
+        loaded: list[RecentIssues] = []
+        note: list[str] = []
+        if aggiorna:
+            targets = [Serie.SG, Serie.S4] if s is None else [s] if s in _REFRESHABLE else []
+            for target in targets:
+                try:
+                    loaded.append(await self.ensure_recent_sommari(target))
+                except GuError as exc:
+                    note.append(
+                        f"Aggiornamento della serie {target.value} non riuscito: "
+                        f"{user_message(exc)}"
+                    )
+            for r in loaded:
+                note.extend(r.notes)
+            if s is not None and not targets:
+                note.append(
+                    f"L'aggiornamento automatico vale per SG e S4: per la serie {s.value} "
+                    "la ricerca usa solo la cache locale."
+                )
         stats = getattr(self._cache, "stats", None)
         if stats is not None and stats().get("search_entries", 1) == 0:
             return self._result(
                 {
                     "totale": 0,
                     "risultati": [],
+                    "note": note,
                     "messaggio": (
                         "La cache locale e' vuota: la ricerca copre solo cio' che hai gia' "
-                        "consultato. Usa prima ultime_pubblicazioni, sommario o leggi_atto per "
-                        "scaricare qualcosa, poi riprova."
+                        "consultato. Usa ultime_pubblicazioni, sommario o leggi_atto per "
+                        "scaricare qualcosa (oppure cerca con aggiorna=true), poi riprova."
                     ),
                 },
                 [self._base],
             )
         hits = self._cache.search(testo, filtri)
+        if loaded:
+            parti = [
+                f"{r.serie.value} dal {r.dal.isoformat()} al {r.al.isoformat()} "
+                f"({len(r.sommari)} numeri)"
+                for r in loaded
+                if r.sommari
+            ]
+            copertura = (
+                "Cercato nei titoli, negli enti e nei riassunti degli atti dei numeri piu' recenti"
+                + (f" ({'; '.join(parti)})" if parti else "")
+                + " e in quanto gia' presente nella cache locale. NON viene cercato il testo "
+                "completo degli atti, salvo quelli gia' letti con leggi_atto."
+            )
+        else:
+            copertura = (
+                "La ricerca copre solo i contenuti gia' presenti nella cache locale "
+                "(feed, sommari e atti consultati finora), non l'intero archivio."
+            )
+        fonte = [h.link for h in hits[:5]] or [r.sommari[0].link for r in loaded if r.sommari]
         return self._result(
             {
-                "copertura": (
-                    "La ricerca copre solo i contenuti gia' presenti nella cache locale "
-                    "(feed, sommari e atti consultati finora), non l'intero archivio."
-                ),
+                "copertura": copertura,
+                "numeri_caricati": [
+                    {
+                        "serie": r.serie.value,
+                        "dal": r.dal.isoformat() if r.sommari else None,
+                        "al": r.al.isoformat() if r.sommari else None,
+                        "numeri": len(r.sommari),
+                        "richieste_effettuate": r.richieste,
+                    }
+                    for r in loaded
+                ],
+                "note": note,
                 "totale": len(hits),
                 "risultati": [_hit(h) for h in hits],
             },
-            [h.link for h in hits[:5]] or [self._base],
+            fonte or [self._base],
         )
+
+
+@dataclass(frozen=True)
+class RecentIssues:
+    """Outcome of :meth:`GazzettaService.ensure_recent_sommari`."""
+
+    serie: Serie
+    sommari: list[Sommario]  # newest first, all in the local cache
+    richieste: int  # network requests made (cache hits are free)
+    notes: list[str]
+    today: date
+
+    @property
+    def dal(self) -> date:
+        return min((s.data for s in self.sommari), default=self.today)
+
+    @property
+    def al(self) -> date:
+        return max((s.data for s in self.sommari), default=self.today)
+
+
+_REFRESHABLE = (Serie.SG, Serie.S4)
+
+
+def _coverage_text(nome: str, sommari: list[Sommario], bandi: int, atti: int) -> str:
+    if not sommari:
+        return f"Nessun numero della {nome} esaminato."
+    dal = min(s.data for s in sommari).isoformat()
+    al = max(s.data for s in sommari).isoformat()
+    return (
+        f"Numeri dal {dal} al {al} della {nome} ({len(sommari)} numeri, {bandi} bandi esaminati, "
+        f"{atti} atti in totale). Cercati solo titolo ed ente di ogni atto; i bandi piu' vecchi "
+        "o non ancora pubblicati non compaiono."
+    )
 
 
 def _hit(h) -> dict[str, Any]:
@@ -538,7 +763,15 @@ def build_service(settings: Settings | None = None) -> GazzettaService:
     raw_max = os.environ.get("GAZZETTA_MCP_MAX_CHARS")
     if raw_max:
         try:
-            limits = Limits(max_chars=max(1000, int(raw_max)))
+            limits = replace(limits, max_chars=max(1000, int(raw_max)))
+        except ValueError:
+            pass
+    raw_sg = os.environ.get("GAZZETTA_MCP_RECENT_ISSUES_SG")
+    if raw_sg:
+        try:
+            limits = replace(
+                limits, recent_issues_sg=max(1, min(int(raw_sg), limits.max_recent_issues))
+            )
         except ValueError:
             pass
     return GazzettaService(

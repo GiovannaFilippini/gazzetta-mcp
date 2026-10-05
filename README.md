@@ -48,9 +48,9 @@ Please keep these defaults respectful of the source. See [docs/fonti.md](docs/fo
 | `ultime_pubblicazioni` | `serie`, `giorni` | Latest publications of a series (SG, S1-S5, P2) over the last N days |
 | `sommario` | `data`, `serie` | Table of contents of the issue of a given date and series |
 | `leggi_atto` | `codice`, `data`, `serie`, `offset` | Text of an act from its editorial code (e.g. `26A05182`) |
-| `cerca_concorsi` | `parole_chiave`, `regione` | Search public competitions (4th series) by keywords and region |
+| `cerca_concorsi` | `parole_chiave`, `regione`, `aperti`, `includi_altri_atti`, `limite` | Search public competitions from a cold start: loads the last ~30 days of the 4th series (a handful of rate-limited requests, then cached), states the coverage |
 | `rimando_normattiva` | `atto` | Builds the permanent Normattiva link for an act (link only, no download) |
-| `cerca` | `testo`, `serie`, `tipo`, `dal`, `al`, `limite` | Full-text search over the locally cached content, with filters |
+| `cerca` | `testo`, `serie`, `tipo`, `dal`, `al`, `limite`, `aggiorna` | Search titles and summaries of recent issues (SG and S4 are refreshed first, bounded), plus everything already cached; full act texts only if already read |
 
 Series codes: `SG` Serie Generale, `S1` Corte Costituzionale, `S2` Unione Europea, `S3` Regioni,
 `S4` Concorsi ed esami, `S5` Contratti pubblici, `P2` Parte II.
@@ -191,9 +191,9 @@ fonte e il link ufficiale: verifica sempre il testo ufficiale prima di farci aff
 | `ultime_pubblicazioni` | `serie`, `giorni` | Ultime pubblicazioni di una serie negli ultimi N giorni |
 | `sommario` | `data`, `serie` | Sommario del numero di una data e serie |
 | `leggi_atto` | `codice`, `data`, `serie`, `offset` | Testo di un atto dal codice redazionale (es. `26A05182`) |
-| `cerca_concorsi` | `parole_chiave`, `regione` | Cerca concorsi (4a serie) per parole chiave e regione |
+| `cerca_concorsi` | `parole_chiave`, `regione`, `aperti`, `includi_altri_atti`, `limite` | Cerca bandi (4a serie) anche a cache vuota: carica gli ultimi 30 giorni (poche richieste distanziate, poi in cache) e dichiara la copertura |
 | `rimando_normattiva` | `atto` | Costruisce il link permanente a Normattiva (solo link) |
-| `cerca` | `testo`, `serie`, `tipo`, `dal`, `al`, `limite` | Ricerca nel testo dei contenuti in cache locale, con filtri |
+| `cerca` | `testo`, `serie`, `tipo`, `dal`, `al`, `limite`, `aggiorna` | Ricerca in titoli e riassunti dei numeri recenti (SG e S4 vengono aggiornate prima, con tetto) e in cio' che e' in cache; il testo completo solo per gli atti gia' letti |
 
 Esempi di richieste in linguaggio naturale: [docs/uso.md](docs/uso.md).
 
