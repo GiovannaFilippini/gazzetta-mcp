@@ -56,6 +56,7 @@ Regole d'uso lette: GU e Normattiva consentono la riproduzione se si cita la fon
 | 060 | Server MCP, strumenti e limiti | [060](decisioni/060-server-mcp.md) |
 | 070 | Ricerca concorsi da cache vuota (ultimi 30 giorni) | [070](decisioni/070-concorsi-ultimi-30-giorni.md) |
 | 071 | Aggiornamento automatico di `cerca` | [071](decisioni/071-aggiornamento-automatico-cerca.md) |
+| 090 | Step 2: archivio remoto con popolamento massivo e cron | [090](decisioni/090-archivio-remoto.md) |
 
 Ogni file spiega le alternative scartate e come tornare indietro. Ogni parte (fonti, lettura delle pagine, memoria locale, strumenti) è separata dalle altre: sostituirne una non obbliga a riscrivere il resto.
 

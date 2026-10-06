@@ -39,7 +39,9 @@ autentico e gratuito."*
 - Outgoing requests are **rate limited** (default 1 per second).
 - Requests carry an **identifying User-Agent** (`gazzetta-mcp/<version> (unofficial open source client)`).
 
-Please keep these defaults respectful of the source. See [docs/fonti.md](docs/fonti.md).
+These are our own choices for the local server, not rules imposed by the source; the source only
+requires citing it and stating that texts are non-authentic and free. Please keep these defaults
+respectful of the source. See [docs/fonti.md](docs/fonti.md).
 
 ## Tools
 
@@ -183,6 +185,9 @@ fonte e il link ufficiale: verifica sempre il testo ufficiale prima di farci aff
 - I risultati restano in una **cache locale** (SQLite) sul tuo computer.
 - Le richieste in uscita hanno un **limite di frequenza** (predefinito: 1 al secondo).
 - Le richieste usano uno **user-agent identificativo**.
+
+Sono scelte nostre per il server locale, non regole imposte dalla fonte, che chiede solo di citarla
+e di dichiarare il carattere non autentico e gratuito dei testi. Vedi [docs/fonti.md](docs/fonti.md).
 
 ### Strumenti
 

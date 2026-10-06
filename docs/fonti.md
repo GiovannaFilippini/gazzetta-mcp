@@ -36,7 +36,7 @@ Verifica eseguita il 2026-10-05 con richieste reali (poche, distanziate, user-ag
 - Non c'e' un portale open data ufficiale della GU. L'unico canale dichiarato per le novita' e' il feed RSS.
 - Le condizioni generali trovate (inserzioni.gazzettaufficiale.it) riguardano il servizio di pubblicazione inserzioni, non la consultazione.
 
-**Conseguenze per il codice:** citare sempre fonte e link ufficiale; dichiarare "non autentico" e "gratuito"; nessun download massivo; limite di richieste; user-agent identificativo.
+**Conseguenze per il codice:** obbligatorio (dalla fonte): citare sempre fonte e link ufficiale; dichiarare "non autentico" e "gratuito". Scelte di prudenza nostre (la fonte non le impone): per il client locale nessun download massivo; limite di richieste; user-agent identificativo. Il servizio remoto dello step 2 fa popolamento massivo con regole proprie (decisione 090).
 
 ## Normattiva (normattiva.it)
 
