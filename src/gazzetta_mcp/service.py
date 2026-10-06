@@ -17,10 +17,12 @@ from typing import Any
 from .cache.sqlite import CacheError, SqliteCache
 from .concorsi import BANDI, classify, estrai_posti, keyword_matcher
 from .config import Settings
-from .interfaces import Cache, NormattivaLinker, Parser, SourceClient
-from .models import DISCLAIMER, Atto, SearchFilters, Serie, Sommario
+from .interfaces import ArchiveSearch, Cache, NormattivaLinker, Parser, SourceClient
+from .models import DISCLAIMER, Atto, SearchFilters, SearchHit, Serie, Sommario
 from .parsing import GuParser, ParseError
 from .regioni import normalize, normalizza_regione, regione_ente
+from .searchtext import count_matches, word_groups
+from .sources.archivio import ArchivioClient
 from .sources.gu import (
     GuClient,
     GuError,
@@ -29,8 +31,10 @@ from .sources.gu import (
     NumeroNotFoundError,
     UnsupportedSerieError,
     resolve_numero,
+    sommario_matches,
 )
 from .sources.normattiva import NormattivaLinkBuilder
+from .sources.ricerca_gu import RicercaGuClient
 
 # Feeds that are already cached are used for date lookups whatever their age.
 _ANY_AGE = 10**9
@@ -103,8 +107,10 @@ class Limits:
     max_search_results: int = 100
     # Issues whose table of contents is loaded automatically by cerca / cerca_concorsi.
     recent_issues_s4: int = 9
-    recent_issues_sg: int = 7
-    max_recent_issues: int = 12  # hard cap of network fetches of issues per call
+    recent_issues_sg: int = 24  # about 30 days of the Serie Generale
+    max_recent_issues: int = 30  # hard cap of network fetches of issues per call
+    year_days: int = 365  # target of periodo='anno'
+    older_block: int = 24  # older issues loaded per call with periodo='anno'
     concorsi_window_days: int = 30  # a call is considered open this long after publication
 
 
@@ -156,6 +162,8 @@ class GazzettaService:
         today: Callable[[], date] = date.today,
         now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
         closers: tuple[Callable[[], Any], ...] = (),
+        archivio: ArchiveSearch | None = None,
+        ricerca_gu: ArchiveSearch | None = None,
     ) -> None:
         self._client = client
         self._parser = parser
@@ -166,6 +174,8 @@ class GazzettaService:
         self._today = today
         self._now = now
         self._closers = closers
+        self._archivio = archivio
+        self._ricerca_gu = ricerca_gu
         self._base = self._settings.gu_base_url.rstrip("/")
 
     async def aclose(self) -> None:
@@ -497,6 +507,72 @@ class GazzettaService:
             sommari.append(som)
         return RecentIssues(serie, sommari, requests, notes, today)
 
+    async def _extend_year(self, serie: Serie, max_issues: int | None = None) -> str:
+        """Load one block of older issues, going back from the oldest one in the cache.
+
+        Issue numbers are sequential within a year, so the number before ``n`` is ``n - 1``;
+        only the date is guessed (1 to 4 days earlier) and every page is verified. The block is
+        capped (``Limits.older_block``) and a call that finds nothing to do costs nothing.
+        Returns the progress sentence for the answer.
+        """
+        today = self._today()
+        limit = today - timedelta(days=self._limits.year_days)
+        cached = self._cached_issues(serie, limit, today)
+        if not cached:
+            return "Periodo esteso all'anno: nessun numero recente in cache da cui partire."
+        block = max_issues or self._limits.older_block
+        current = cached[-1]  # oldest one we have
+        added = 0
+        problem = ""
+        while added < block and current.data > limit:
+            numero = current.numero - 1
+            if numero < 1:
+                problem = "arrivato al primo numero dell'anno: i numeri dell'anno prima non vengono ricostruiti"
+                break
+            found: Sommario | None = None
+            for back in range(1, 5):
+                day = current.data - timedelta(days=back)
+                known = self._cache.get_sommario(day, serie)
+                if known is not None and known.numero == numero:
+                    found = known
+                    break
+                try:
+                    page = await self._client.get_sommario(day, serie, numero)
+                except GuNotFoundError:
+                    continue
+                except GuError as exc:
+                    problem = f"errore di rete ({user_message(exc)})"
+                    break
+                if not sommario_matches(page.content, day, numero):
+                    continue
+                parsed = self._parser.parse_sommario(page.content, serie, day, numero, self._base)
+                if parsed.voci:
+                    self._cache.put_sommario(parsed)
+                    found = parsed
+                    added += 1
+                break
+            if problem:
+                break
+            if found is None:
+                problem = (
+                    f"numero {numero} non trovato nei 4 giorni prima del {current.data.isoformat()}"
+                )
+                break
+            current = found
+        reached = current.data
+        if reached <= limit:
+            return (
+                f"Cache locale della {serie.value} completa fino al {reached.isoformat()} "
+                f"(un anno): aggiunti {added} numeri."
+            )
+        missing = (reached - limit).days
+        text = (
+            f"Cache locale della {serie.value} estesa fino al {reached.isoformat()}: aggiunti "
+            f"{added} numeri, mancano circa {missing} giorni per coprire un anno. Ripeti la "
+            "ricerca con periodo='anno' per proseguire."
+        )
+        return text + (f" (Interrotto: {problem}.)" if problem else "")
+
     # --- 4. cerca_concorsi ----------------------------------------------------------
 
     async def cerca_concorsi(
@@ -610,6 +686,53 @@ class GazzettaService:
             [link.link, self._base],
         )
 
+    async def _search_archives(
+        self,
+        testo: str,
+        filtri: SearchFilters,
+        serie: Serie | None,
+        hits: list[SearchHit],
+        note: list[str],
+    ) -> tuple[list[SearchHit], list[str]]:
+        """Add results from the archives that are switched on; local hits come first.
+
+        Each archive costs one request, is rate limited and cached, and a failure is only a
+        note. Duplicates (same act code) are dropped, keeping the local hit.
+        """
+        merged = list(hits)
+        seen = {h.codice for h in merged}
+        used: list[str] = []
+        repealed: set[str] = set()
+        sources = [
+            (self._archivio, "atti normativi dal sito Normattiva (open data), per titolo"),
+            (self._ricerca_gu, "ricerca avanzata del sito della Gazzetta Ufficiale"),
+        ]
+        for source, label in sources:
+            if source is None or serie not in (None, Serie.SG):
+                continue
+            try:
+                found, total, extra, abrogati = await source.cerca(testo, filtri)
+            except GuError as exc:
+                note.append(f"Ricerca nell'archivio non riuscita ({label}): {user_message(exc)}")
+                continue
+            note.extend(extra)
+            repealed |= abrogati
+            used.append(f"{label} ({total} atti trovati, mostrati i piu' pertinenti)")
+            for h in found:
+                if h.codice not in seen:
+                    seen.add(h.codice)
+                    merged.append(h)
+        groups = word_groups(testo)  # best matches first, whatever the source
+        merged.sort(key=lambda h: -count_matches(h.titolo, groups))
+        if filtri.solo_vigenti and repealed:
+            kept = [h for h in merged if h.origine != "cache" or h.codice not in repealed]
+            if len(kept) < len(merged):
+                note.append(
+                    f"Esclusi {len(merged) - len(kept)} atti della cache locale perche' abrogati."
+                )
+            merged = kept
+        return merged[: filtri.limite], used
+
     # --- 6. cerca -------------------------------------------------------------------
 
     async def cerca(
@@ -621,6 +744,8 @@ class GazzettaService:
         al: str | None = None,
         limite: int = 20,
         aggiorna: bool = True,
+        solo_vigenti: bool = True,
+        periodo: str | None = None,
     ) -> dict[str, Any]:
         if not (testo or "").strip():
             raise ServiceError("Indica il testo da cercare.")
@@ -632,7 +757,11 @@ class GazzettaService:
             dal=_parse_date(dal, "dal"),
             al=_parse_date(al, "al"),
             limite=limite,
+            solo_vigenti=solo_vigenti,
         )
+        anno = (periodo or "").strip().lower() in {"anno", "ultimo anno", "12 mesi"}
+        if (periodo or "").strip() and not anno and periodo.strip().lower() != "recenti":
+            raise ServiceError("Il periodo puo' essere 'recenti' (predefinito) oppure 'anno'.")
         loaded: list[RecentIssues] = []
         note: list[str] = []
         if aggiorna:
@@ -647,6 +776,8 @@ class GazzettaService:
                     )
             for r in loaded:
                 note.extend(r.notes)
+            if anno and Serie.SG in targets:
+                note.append(await self._extend_year(Serie.SG))
             if s is not None and not targets:
                 note.append(
                     f"L'aggiornamento automatico vale per SG e S4: per la serie {s.value} "
@@ -668,6 +799,15 @@ class GazzettaService:
                 [self._base],
             )
         hits = self._cache.search(testo, filtri)
+        fonti_archivio: list[str] = []
+        if aggiorna:
+            hits, fonti_archivio = await self._search_archives(testo, filtri, s, hits, note)
+        if not hits:
+            note.append(
+                "Nessun risultato nei numeri recenti, nella cache locale e nell'archivio: prova "
+                "parole diverse, indica un periodo con dal/al, oppure usa la ricerca del sito "
+                "ufficiale (https://www.gazzettaufficiale.it)."
+            )
         if loaded:
             parti = [
                 f"{r.serie.value} dal {r.dal.isoformat()} al {r.al.isoformat()} "
@@ -676,7 +816,7 @@ class GazzettaService:
                 if r.sommari
             ]
             copertura = (
-                "Cercato nei titoli, negli enti e nei riassunti degli atti dei numeri piu' recenti"
+                "Cercato nei titoli e negli enti degli atti dei numeri piu' recenti"
                 + (f" ({'; '.join(parti)})" if parti else "")
                 + " e in quanto gia' presente nella cache locale. NON viene cercato il testo "
                 "completo degli atti, salvo quelli gia' letti con leggi_atto."
@@ -685,6 +825,13 @@ class GazzettaService:
             copertura = (
                 "La ricerca copre solo i contenuti gia' presenti nella cache locale "
                 "(feed, sommari e atti consultati finora), non l'intero archivio."
+            )
+        if fonti_archivio:
+            copertura += (
+                " In piu' e' stato interrogato l'archivio: "
+                + "; ".join(fonti_archivio)
+                + ". Gli atti con origine diversa da 'cache' vanno letti con leggi_atto "
+                "indicando anche la data."
             )
         fonte = [h.link for h in hits[:5]] or [r.sommari[0].link for r in loaded if r.sommari]
         return self._result(
@@ -751,6 +898,7 @@ def _hit(h) -> dict[str, Any]:
         "estratto": h.estratto,
         "link": h.link,
         "punteggio": round(h.punteggio, 3),
+        "origine": h.origine,
     }
 
 
@@ -774,12 +922,18 @@ def build_service(settings: Settings | None = None) -> GazzettaService:
             )
         except ValueError:
             pass
+    archivio = ArchivioClient(settings, cache=cache) if settings.archivio_normattiva else None
+    ricerca_gu = RicercaGuClient(settings, cache=cache) if settings.ricerca_gu else None
+    closers = (client.aclose, cache.close)
+    closers += tuple(c.aclose for c in (archivio, ricerca_gu) if c is not None)
     return GazzettaService(
+        archivio=archivio,
+        ricerca_gu=ricerca_gu,
         client=client,
         parser=GuParser(),
         cache=cache,
         linker=NormattivaLinkBuilder(settings),
         settings=settings,
         limits=limits,
-        closers=(client.aclose, cache.close),
+        closers=closers,
     )

@@ -140,6 +140,8 @@ def register(mcp: FastMCP, get_service: ServiceGetter) -> None:
         al: str | None = None,
         limite: int = 20,
         aggiorna: bool = True,
+        solo_vigenti: bool = True,
+        periodo: str | None = None,
     ) -> dict[str, Any]:
         """Cerca per parole chiave tra gli atti della Gazzetta Ufficiale, anche a cache vuota.
 
@@ -147,16 +149,27 @@ def register(mcp: FastMCP, get_service: ServiceGetter) -> None:
         edilizia", "atti che parlano di semplificazione", "qualcosa sulla caccia in Veneto".
         Mette i risultati in ordine di pertinenza; da un risultato prendi il codice per
         leggi_atto. Con aggiorna=true (predefinito) e serie SG, S4 o non indicata, scarica
-        prima, con poche richieste distanziate, i sommari dei numeri recenti (SG: ultimi 7;
-        S4: ultimi 9) non ancora in cache. Si cerca nei titoli, negli enti e nei riassunti,
-        NON nel testo completo degli atti (solo quelli gia' letti con leggi_atto). La risposta
-        dice quali date sono state caricate: la copertura e' parziale e i risultati possono essere incompleti, dillo
-        all'utente. Con aggiorna=false non si fa rete.
+        prima, con poche richieste distanziate, i sommari dei numeri recenti (SG: ultimi 24,
+        circa 30 giorni; S4: ultimi 9) non ancora in cache. Si cerca nei titoli e negli enti
+        (singolare e plurale sono equivalenti; se nessun titolo ha tutte le parole, ripiega su
+        quelli che ne hanno almeno una), NON nel testo completo. In piu' interroga l'archivio
+        degli atti normativi su Normattiva (leggi e decreti per titolo; senza dal copre l'ultimo
+        anno; con solo_vigenti=true, predefinito, esclude gli atti gia' abrogati): quei
+        risultati hanno origine 'normattiva' e per leggerli con leggi_atto va passata anche
+        la data. La risposta dice quali date e quali archivi sono stati usati: la copertura
+        puo' restare parziale (avvisi e concorsi vecchi non ci sono), dillo all'utente. Con
+        periodo='anno' la cache locale della Serie Generale viene estesa all'indietro, 24
+        numeri per chiamata, fino a un anno (anche per atti non normativi): la risposta dice
+        a che punto e', ripeti la ricerca per proseguire. Con aggiorna=false non si fa rete.
 
         Filtri facoltativi: serie (SG, S1-S5, P2), tipo (es. DECRETO, LEGGE, AVVISO),
         dal / al (AAAA-MM-GG), limite (massimo 100).
         """
-        return await _guard(get_service().cerca(testo, serie, tipo, dal, al, limite, aggiorna))
+        return await _guard(
+            get_service().cerca(
+                testo, serie, tipo, dal, al, limite, aggiorna, solo_vigenti, periodo
+            )
+        )
 
 
 __all__ = ["ServiceError", "register"]

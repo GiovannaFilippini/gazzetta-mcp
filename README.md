@@ -193,7 +193,7 @@ fonte e il link ufficiale: verifica sempre il testo ufficiale prima di farci aff
 | `leggi_atto` | `codice`, `data`, `serie`, `offset` | Testo di un atto dal codice redazionale (es. `26A05182`) |
 | `cerca_concorsi` | `parole_chiave`, `regione`, `aperti`, `includi_altri_atti`, `limite` | Cerca bandi (4a serie) anche a cache vuota: carica gli ultimi 30 giorni (poche richieste distanziate, poi in cache) e dichiara la copertura |
 | `rimando_normattiva` | `atto` | Costruisce il link permanente a Normattiva (solo link) |
-| `cerca` | `testo`, `serie`, `tipo`, `dal`, `al`, `limite`, `aggiorna` | Ricerca in titoli e riassunti dei numeri recenti (SG e S4 vengono aggiornate prima, con tetto) e in cio' che e' in cache; il testo completo solo per gli atti gia' letti |
+| `cerca` | `testo`, `serie`, `tipo`, `dal`, `al`, `limite`, `aggiorna` | Ricerca nei titoli dei numeri recenti (SG circa 30 giorni, S4 ultimi 9: aggiornati prima, con tetto), in cio' che e' in cache e, per leggi e decreti di qualsiasi anno, nell'archivio open data di Normattiva (origine `normattiva`); il testo completo solo per gli atti gia' letti |
 
 Esempi di richieste in linguaggio naturale: [docs/uso.md](docs/uso.md).
 
