@@ -170,6 +170,43 @@ consultato, non tutto l'archivio, e lo dice. Poi vai a "Installazione".
 > **Stato: pre-release.** Il pacchetto **non e' ancora pubblicato su PyPI**: i comandi di
 > installazione da PyPI funzioneranno solo dopo la pubblicazione. Vedi "Da sorgente".
 
+### Come si usa, passo passo
+
+Non serve saper programmare: dopo il collegamento iniziale parli con l'assistente come faresti
+con una persona.
+
+1. **Collega la Gazzetta all'assistente (una sola volta).** E' la parte piu' tecnica: se non ti
+   senti sicuro, fatti aiutare da chi si occupa dei computer. I comandi sono nelle sezioni
+   "Installazione" e "Configurazione del client MCP" piu' sotto. Dopo averli eseguiti, chiudi e
+   riapri del tutto l'assistente.
+2. **Scrivi cosa ti serve, con parole tue.** Non servono codici, numeri o date precise. Per
+   esempio:
+   - "Ci sono concorsi per infermiere in Lombardia?"
+   - "Cosa e' uscito oggi in Gazzetta?"
+   - "Cerca le novita' sul bonus affitti degli ultimi mesi."
+   - "Dammi il testo di quel decreto, riassunto in tre punti."
+   - "Dammi il link Normattiva della legge 241/1990."
+3. **Leggi la risposta.** L'assistente ti mostra i risultati con un titolo, la data e il link
+   ufficiale. Se vuoi approfondire, rispondi con una frase come "leggimi il secondo" o "fammi un
+   riassunto": non devi copiare nulla.
+4. **Controlla sempre la fonte ufficiale.** I testi mostrati sono comodi ma **non ufficiali**:
+   per un bando (requisiti, scadenza, come presentare la domanda) o per qualsiasi decisione
+   importante, apri il link ufficiale riportato nella risposta.
+
+Qualche accorgimento utile:
+
+- **I risultati possono essere incompleti.** L'assistente guarda le pubblicazioni recenti e cio'
+  che ha gia' consultato, non tutto l'archivio, e ti dice quali giorni ha esaminato. Se non trova
+  nulla, non vuol dire che non esista: prova con altre parole o guarda il sito ufficiale.
+- **La prima ricerca e' piu' lenta.** Deve scaricare i numeri recenti (poche richieste, una alla
+  volta, per rispetto del sito); poi li ricorda e le ricerche successive sono piu' rapide.
+- **Se cerchi piu' indietro nel tempo**, chiedilo esplicitamente (per esempio "cerca nell'ultimo
+  anno"): puo' servire ripetere la richiesta piu' volte finche' l'assistente dice che la ricerca
+  e' completa.
+- **Se qualcosa non funziona**, vai a "Se qualcosa non funziona" piu' sotto.
+
+Altri esempi di domande, strumento per strumento, sono in [docs/uso.md](docs/uso.md).
+
 ### Avvertenza
 
 **Questo progetto NON e' una pubblicazione ufficiale e non e' affiliato alla Gazzetta Ufficiale
