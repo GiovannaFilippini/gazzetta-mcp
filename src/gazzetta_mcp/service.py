@@ -508,7 +508,7 @@ class GazzettaService:
         return RecentIssues(serie, sommari, requests, notes, today)
 
     async def _extend_year(self, serie: Serie, max_issues: int | None = None) -> str:
-        """Load one block of older issues, going back from the oldest one in the cache.
+        """Load one block of older issues, going back from the end of the recent cached run.
 
         Issue numbers are sequential within a year, so the number before ``n`` is ``n - 1``;
         only the date is guessed (1 to 4 days earlier) and every page is verified. The block is
@@ -521,7 +521,13 @@ class GazzettaService:
         if not cached:
             return "Periodo esteso all'anno: nessun numero recente in cache da cui partire."
         block = max_issues or self._limits.older_block
-        current = cached[-1]  # oldest one we have
+        # Start from the end of the unbroken run of numbers that begins at the newest issue: an
+        # old issue opened earlier must not hide the gap between it and the recent ones.
+        current = cached[0]
+        for older in cached[1:]:
+            if older.numero != current.numero - 1:
+                break
+            current = older
         added = 0
         problem = ""
         while added < block and current.data > limit:

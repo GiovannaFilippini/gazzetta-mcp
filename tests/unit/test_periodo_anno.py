@@ -80,6 +80,20 @@ async def test_extend_year_walks_back_with_sequential_numbers():
     assert "aggiunti" in text2
 
 
+async def test_extend_year_fills_gap_before_an_old_cached_issue():
+    issues = {**ISSUES, date(2026, 3, 2): 50}
+    service, cache = seeded(issues, older_block=10)
+    old = date(2026, 3, 2)
+    cache.put_sommario(
+        service._parser.parse_sommario(issue_page(old, 50), Serie.SG, old, 50, service._base)
+    )
+    service._client = FakeGu(issues)
+    await service._extend_year(Serie.SG)
+    # the recent numbers are loaded first, not skipped in favour of the old issue
+    assert cache.get_sommario(date(2026, 10, 2), Serie.SG).numero == 229
+    assert (date(2026, 10, 2), 229) in service._client.asked
+
+
 async def test_extend_year_stops_on_errors_and_gaps():
     service, _ = seeded(ISSUES, older_block=5)
     service._client = FakeGu(ISSUES, fail=True)
