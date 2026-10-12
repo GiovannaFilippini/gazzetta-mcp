@@ -170,6 +170,18 @@ consultato, non tutto l'archivio, e lo dice. Poi vai a "Installazione".
 > **Stato: pre-release.** Il pacchetto **non e' ancora pubblicato su PyPI**: i comandi di
 > installazione da PyPI funzioneranno solo dopo la pubblicazione. Vedi "Da sorgente".
 
+### Come si usa
+
+1. **Collega la Gazzetta all'assistente** (una volta sola, vedi "Installazione" e
+   "Configurazione del client MCP"), poi riavvia l'assistente.
+2. **Scrivi cosa ti serve con parole tue**, senza codici o date: "Ci sono concorsi per infermiere
+   in Lombardia?", "Cosa e' uscito oggi in Gazzetta?", "Dammi il link Normattiva della legge
+   241/1990."
+3. **Apri sempre il link ufficiale** riportato nella risposta: i testi non sono ufficiali e i
+   risultati possono essere incompleti.
+
+Altri esempi in [docs/uso.md](docs/uso.md).
+
 ### Avvertenza
 
 **Questo progetto NON e' una pubblicazione ufficiale e non e' affiliato alla Gazzetta Ufficiale
