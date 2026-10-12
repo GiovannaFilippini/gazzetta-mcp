@@ -59,7 +59,10 @@ Series codes: `SG` Serie Generale, `S1` Corte Costituzionale, `S2` Unione Europe
 
 ## Install
 
-Requires Python 3.10+. Once published on PyPI:
+Requires Python 3.10+ and [uv](https://docs.astral.sh/uv/getting-started/installation/), a small
+free tool that downloads and runs the server for you (it provides the `uvx` command). On Windows,
+open PowerShell and run `winget install --id astral-sh.uv`, then reopen the terminal.
+Once published on PyPI:
 
 ```bash
 uvx gazzetta-mcp
@@ -69,11 +72,8 @@ pip install gazzetta-mcp
 
 ### From source (works today)
 
-The repository is currently **private**, so this needs access to it (and will work for everyone
-once it is public). Replace `<owner>` with the repository owner:
-
 ```bash
-uvx --from git+https://github.com/<owner>/gazzetta-mcp gazzetta-mcp
+uvx --from git+https://github.com/GiovannaFilippini/gazzetta-mcp gazzetta-mcp
 ```
 
 ## Configure your MCP client
@@ -101,7 +101,7 @@ claude mcp add gazzetta -- uvx gazzetta-mcp
 over stdin/stdout.
 
 To use the from-source variant, replace the command/args with
-`uvx --from git+https://github.com/<owner>/gazzetta-mcp gazzetta-mcp`.
+`uvx --from git+https://github.com/GiovannaFilippini/gazzetta-mcp gazzetta-mcp`.
 
 ## Configuration
 
@@ -204,7 +204,10 @@ Esempi di richieste in linguaggio naturale: [docs/uso.md](docs/uso.md).
 
 ### Installazione
 
-Serve Python 3.10+. Dopo la pubblicazione su PyPI:
+Serve Python 3.10+ e [uv](https://docs.astral.sh/uv/getting-started/installation/), un piccolo
+programma gratuito che scarica e avvia il server al posto tuo (fornisce il comando `uvx`). Su
+Windows apri PowerShell, scrivi `winget install --id astral-sh.uv`, poi chiudi e riapri il
+terminale. Dopo la pubblicazione su PyPI:
 
 ```bash
 uvx gazzetta-mcp
@@ -212,11 +215,10 @@ uvx gazzetta-mcp
 pip install gazzetta-mcp
 ```
 
-**Da sorgente** (funziona oggi; il repository e' al momento **privato**, serve l'accesso;
-sostituisci `<owner>` con il proprietario del repository):
+**Da sorgente** (funziona oggi):
 
 ```bash
-uvx --from git+https://github.com/<owner>/gazzetta-mcp gazzetta-mcp
+uvx --from git+https://github.com/GiovannaFilippini/gazzetta-mcp gazzetta-mcp
 ```
 
 ### Configurazione del client MCP
