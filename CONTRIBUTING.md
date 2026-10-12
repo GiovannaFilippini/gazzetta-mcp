@@ -19,7 +19,7 @@ own rules, see [decision 090](docs/decisioni/090-archivio-remoto.md)):
 Requires Python 3.10+ and [uv](https://docs.astral.sh/uv/).
 
 ```bash
-git clone https://github.com/<owner>/gazzetta-mcp
+git clone https://github.com/GiovannaFilippini/gazzetta-mcp
 cd gazzetta-mcp
 uv sync
 uv run pytest

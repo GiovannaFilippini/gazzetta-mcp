@@ -7,6 +7,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- README and CONTRIBUTING: replaced the `<owner>` placeholder with the repository owner, removed
+  the note saying the repository is private, and explained how to install `uv`.
+
 ### Fixed
 
 - `leggi_atto` returned only the first article of acts with several articles (the GU text page
