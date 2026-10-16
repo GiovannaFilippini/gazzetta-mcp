@@ -10,6 +10,18 @@ readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"
 dependencies = ["fastmcp>=2", "httpx>=0.27", "selectolax>=0.3"]
+authors = [{ name = "Giovanna Filippini" }]
+keywords = ["mcp", "gazzetta-ufficiale", "italia", "normattiva"]
+classifiers = [
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Natural Language :: Italian",
+]
+
+[project.urls]
+Homepage = "https://github.com/GiovannaFilippini/gazzetta-mcp"
+Issues = "https://github.com/GiovannaFilippini/gazzetta-mcp/issues"
+Changelog = "https://github.com/GiovannaFilippini/gazzetta-mcp/blob/main/CHANGELOG.md"
 
 [project.scripts]
 gazzetta-mcp = "gazzetta_mcp.server:main"

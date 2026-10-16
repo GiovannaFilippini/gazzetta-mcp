@@ -1,5 +1,7 @@
 # gazzetta-mcp
 
+<!-- mcp-name: io.github.GiovannaFilippini/gazzetta-mcp -->
+
 Unofficial, local [MCP](https://modelcontextprotocol.io) server that lets your AI assistant
 consult the Italian *Gazzetta Ufficiale*. Free, open source (MIT). No codes or dates needed.
 
@@ -14,9 +16,6 @@ English | [Italiano](#italiano)
 
 Results can be partial: the server sees recent publications and what it has already looked up,
 not the whole archive, and it says so. Then see [Install](#install).
-
-> **Status: pre-release.** The package is **not yet published on PyPI**. Install commands below
-> that use PyPI work only once it is published; see "From source" for what works today.
 
 ## Disclaimer
 
@@ -62,7 +61,6 @@ Series codes: `SG` Serie Generale, `S1` Corte Costituzionale, `S2` Unione Europe
 Requires Python 3.10+ and [uv](https://docs.astral.sh/uv/getting-started/installation/), a small
 free tool that downloads and runs the server for you (it provides the `uvx` command). On Windows,
 open PowerShell and run `winget install --id astral-sh.uv`, then reopen the terminal.
-Once published on PyPI:
 
 ```bash
 uvx gazzetta-mcp
@@ -95,6 +93,14 @@ claude mcp add gazzetta -- uvx gazzetta-mcp
     }
   }
 }
+```
+
+**Cursor** (`~/.cursor/mcp.json`) and **Windsurf**: same `mcpServers` block as Claude Desktop.
+
+**VS Code** (`.vscode/mcp.json`)
+
+```json
+{ "servers": { "gazzetta": { "type": "stdio", "command": "uvx", "args": ["gazzetta-mcp"] } } }
 ```
 
 **Generic stdio client**: run the command `gazzetta-mcp` (or `uvx gazzetta-mcp`) and speak MCP
@@ -167,9 +173,6 @@ Non servono codici ne' date.
 I risultati possono essere parziali: il server vede le pubblicazioni recenti e cio' che ha gia'
 consultato, non tutto l'archivio, e lo dice. Poi vai a "Installazione".
 
-> **Stato: pre-release.** Il pacchetto **non e' ancora pubblicato su PyPI**: i comandi di
-> installazione da PyPI funzioneranno solo dopo la pubblicazione. Vedi "Da sorgente".
-
 ### Come si usa
 
 1. **Collega la Gazzetta all'assistente** (una volta sola, vedi "Installazione" e
@@ -219,7 +222,7 @@ Esempi di richieste in linguaggio naturale: [docs/uso.md](docs/uso.md).
 Serve Python 3.10+ e [uv](https://docs.astral.sh/uv/getting-started/installation/), un piccolo
 programma gratuito che scarica e avvia il server al posto tuo (fornisce il comando `uvx`). Su
 Windows apri PowerShell, scrivi `winget install --id astral-sh.uv`, poi chiudi e riapri il
-terminale. Dopo la pubblicazione su PyPI:
+terminale.
 
 ```bash
 uvx gazzetta-mcp

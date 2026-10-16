@@ -4,7 +4,7 @@
 
 | Step | Cosa | Stato |
 |---|---|---|
-| 1 | Server MCP locale con cache SQLite sul dispositivo (questo documento) | in chiusura: PR #9, prova con un client reale, repo pubblico, PyPI |
+| 1 | Server MCP locale con cache SQLite sul dispositivo (questo documento) | in chiusura: repo pubblico, PyPI |
 | 2 | Servizio remoto con archivio centrale: popolamento massivo, aggiornamento pianificato (cron), riempimento su richiesta; GU + Normattiva | da progettare, vedi decisione 090 |
 | 3 | Riassunti generati sul server e cronologie per ambito | dopo lo step 2 |
 
