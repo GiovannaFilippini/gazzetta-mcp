@@ -18,7 +18,7 @@
 ## Fatti verificati (2026-10-05)
 
 - Testo HTML degli atti presente almeno dal 1950 (legge del 1950-01-02, codice `049U0961`); 1946-1949 non verificati.
-- `caricaArticoloDefault` restituisce **solo il primo articolo**; gli altri sono elencati da `/atto/vediMenuHTML`, il cui modulo di esportazione (`POST /atto/stampa/<serie>/originario`) restituisce l'atto intero in una pagina (PR #11). Costo per atto: scheda + menu + esportazione = 3 richieste, qualunque sia il numero di articoli; 2 per gli atti senza articoli nel menu (scheda + pagina singola).
+- `caricaArticoloDefault` restituisce **solo il primo articolo**; gli altri sono elencati da `/atto/vediMenuHTML`, il cui modulo di esportazione (`POST /atto/stampa/<serie>/originario`) restituisce l'atto intero in una pagina. Costo per atto: scheda + menu + esportazione = 3 richieste, qualunque sia il numero di articoli; 2 per gli atti senza articoli nel menu (scheda + pagina singola).
 - La GU non offre API ne' open data (solo RSS). Le API ufficiali sono quelle di Normattiva.
 
 ## Acquisizione dalla GU (regole nostre)

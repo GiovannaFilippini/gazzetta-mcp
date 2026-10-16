@@ -7,6 +7,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-16
+
 ### Changed
 
 - README and CONTRIBUTING: replaced the `<owner>` placeholder with the repository owner, removed

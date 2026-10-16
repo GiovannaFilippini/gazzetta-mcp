@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-The project is pre-release. Only the latest commit on `main` is supported.
+Only the latest release is supported.
 
 ## Reporting a vulnerability
 
