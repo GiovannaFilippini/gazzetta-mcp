@@ -57,3 +57,9 @@ affected URL and what differs, and add a fixture if you send a fix.
 ## Reporting security problems
 
 See [SECURITY.md](SECURITY.md).
+
+## License of contributions
+
+By opening a pull request you agree that your contribution is released under the
+[MIT License](LICENSE) of this project. Only submit work you wrote yourself or have the
+right to submit.
