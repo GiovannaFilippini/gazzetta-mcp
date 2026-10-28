@@ -364,3 +364,54 @@ def test_il_termine_del_ricorso_non_cancella_quello_delle_domande():
     assert sc.data == date(2026, 11, 19)
     assert sc.giorni == 30
     assert not sc.incerta
+
+
+@pytest.mark.parametrize(
+    "testo",
+    [
+        (
+            "Il bando e' pubblicato sul sito dell'ente e in Gazzetta Ufficiale; le domande di "
+            "partecipazione entro 30 giorni dalla pubblicazione."
+        ),
+        (
+            "Le domande di partecipazione entro 30 giorni dalla pubblicazione del presente bando "
+            "sul BUR (bollettino regionale). Estratto in Gazzetta Ufficiale."
+        ),
+        (
+            "Le domande di partecipazione entro 30 giorni dalla pubblicazione sul Bollettino "
+            "Ufficiale della Regione Lombardia, il cui avviso e' in Gazzetta Ufficiale."
+        ),
+        (
+            "Le domande di partecipazione entro 30 giorni dalla pubblicazione sulla Gazzetta "
+            "Ufficiale dell'Unione europea."
+        ),
+        (
+            "Il bando e' pubblicato nella GUUE. Le domande di partecipazione entro 30 giorni "
+            "dalla pubblicazione nella Gazzetta Ufficiale - 4a serie speciale."
+        ),
+    ],
+)
+def test_altre_pubblicazioni_non_sono_la_gazzetta_italiana(testo):
+    # website, regional bulletin or EU gazette: the date of the Italian GU would be wrong
+    sc = ricava_scadenza(testo, date(2026, 10, 2))
+    assert sc.data is None
+    assert sc.metodo == METODO_NESSUNO
+
+
+@pytest.mark.parametrize(
+    "testo",
+    [
+        (
+            "Le domande di partecipazione si presentano online. Entro 60 giorni dalla "
+            "pubblicazione nella Gazzetta Ufficiale puo' essere proposto ricorso al TAR."
+        ),
+        (
+            "Le domande di partecipazione si presentano online. Entro 120 giorni dalla "
+            "pubblicazione nella Gazzetta Ufficiale e' ammesso ricorso straordinario al "
+            "Presidente della Repubblica."
+        ),
+    ],
+)
+def test_ricorso_dopo_la_cifra_non_da_mai_una_data_sicura(testo):
+    sc = ricava_scadenza(testo, date(2026, 10, 2))
+    assert sc.data is None or sc.incerta

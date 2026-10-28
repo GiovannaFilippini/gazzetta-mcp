@@ -153,6 +153,8 @@ _SABATO_FESTIVO = re.compile(
 _FONTE_LOCALE = re.compile(
     r"\b(?:sito|albo|pretori\w*|internet|web|portale|istituzional\w*|online|on line)\b"
 )
+# the regional bulletin or the EU gazette are other publications, not the Italian GU
+_ALTRA_FONTE = re.compile(r"\b(?:bur[a-z]?|bollettino ufficiale|unione europea|guue|g u u e)\b")
 # appeal terms ("ricorso al TAR entro 60 giorni dalla pubblicazione") are not application terms
 _RICORSO = re.compile(r"\b(?:ricors\w*|impugn\w*|giurisdizional\w*|tar|tribunale amministrativo)\b")
 _PUBBLICAZIONE = re.compile(r"pubblicazion\w*")
@@ -178,8 +180,10 @@ def _origine_termine(testo: str, inizio: int) -> str | None:
 
     Looks at the first "pubblicazione" from the figure on (else at the closest one before it)
     and at the words up to the first "Gazzetta" after it: if the website or the notice board of
-    the body comes in between, the term is counted from that publication ("locale"), not from
-    the GU.
+    the body comes in between, or the Gazzetta is the EU one, or the regional bulletin is named
+    just before, the term is counted from another publication ("locale"), not from the Italian
+    GU. When the text says "the publication" without naming it and both the Gazzetta and
+    another publication are close by, it is ambiguous: also "locale", never a sure date.
     """
     pub = _PUBBLICAZIONE.search(testo, max(0, inizio - 60), inizio + 170)
     if not pub:
@@ -188,21 +192,30 @@ def _origine_termine(testo: str, inizio: int) -> str | None:
             return None
         pub = prima[-1]
     dopo = testo[pub.end() : pub.end() + _DISTANZA_GAZZETTA]
+    prima_pub = testo[max(0, pub.start() - _DISTANZA_GAZZETTA) : pub.start()]
     gazzetta = dopo.find("gazzetta")
     if gazzetta != -1:
-        return "locale" if _FONTE_LOCALE.search(dopo[:gazzetta]) else "gazzetta"
-    if _FONTE_LOCALE.search(dopo[:40]):
+        if (
+            _FONTE_LOCALE.search(dopo[:gazzetta])
+            or _ALTRA_FONTE.search(dopo[: gazzetta + 45])
+            or _ALTRA_FONTE.search(prima_pub)
+        ):
+            return "locale"
+        return "gazzetta"
+    if _FONTE_LOCALE.search(dopo[:40]) or _ALTRA_FONTE.search(dopo[:40]):
         return "locale"
     # "pubblicato nella Gazzetta ..., a quindici giorni dalla pubblicazione": the GU comes first
-    prima_pub = testo[max(0, pub.start() - _DISTANZA_GAZZETTA) : pub.start()]
-    ultima = prima_pub.rfind("gazzetta")
-    if ultima != -1 and not _FONTE_LOCALE.search(prima_pub[ultima:]):
+    if "gazzetta" in prima_pub:
+        if _FONTE_LOCALE.search(prima_pub) or _ALTRA_FONTE.search(prima_pub):
+            return "locale"
         return "gazzetta"
     return None
 
 
-def _formule_giorni(norm: str, origine: str = "gazzetta") -> list[tuple[int, bool, str]]:
-    """Every "N days from the publication in the GU" in the text: (N, "presente", excerpt).
+def _formule_giorni(norm: str, origine: str = "gazzetta") -> list[tuple[int, bool, str, bool]]:
+    """Every "N days from the publication in the GU": (N, "presente", excerpt, doubtful).
+
+    A formula is doubtful when an appeal ("ricorso", TAR) is named right after it.
 
     With ``origine="locale"`` it returns the formulas counted from the website of the body
     instead (used only to say why no date is given).
@@ -225,7 +238,8 @@ def _formule_giorni(norm: str, origine: str = "gazzetta") -> list[tuple[int, boo
         if re.match(r"\s*(?:lavorativi|feriali)", dopo):
             continue
         presente = bool(re.search(r"presente (?:avviso|bando|estratto|comunicato)", finestra))
-        trovate.append((n, presente, finestra.strip()))
+        dubbia = bool(_RICORSO.search(testo[m.end() : m.end() + 100]))
+        trovate.append((n, presente, finestra.strip(), dubbia))
     return trovate
 
 
@@ -290,7 +304,7 @@ def ricava_scadenza(testo: str, pubblicazione: date) -> Scadenza:
         # the formula about "il presente avviso" first, then the first one in the text
         formule.sort(key=lambda f: not f[1])
         giorni = formule[0][0]
-        incerta = len({f[0] for f in formule}) > 1
+        incerta = len({f[0] for f in formule}) > 1 or formule[0][3]
         nominale = pubblicazione + timedelta(days=giorni)
         data, motivo = primo_giorno_utile(nominale, bool(_SABATO_FESTIVO.search(norm)))
         dettaglio = (
@@ -300,7 +314,7 @@ def ricava_scadenza(testo: str, pubblicazione: date) -> Scadenza:
         if motivo:
             dettaglio += f"; il {nominale.isoformat()} non e' un giorno utile ({motivo}), slitta"
         if incerta:
-            dettaglio += "; nel testo compaiono termini diversi: controlla il bando"
+            dettaglio += "; nel testo compaiono termini diversi o un ricorso: controlla il bando"
         return Scadenza(data, METODO_GIORNI, dettaglio + ".", giorni, nominale, motivo, incerta)
 
     esplicite = _intervallo_domande(norm, pubblicazione) or _formule_data(norm, pubblicazione)
@@ -316,8 +330,9 @@ def ricava_scadenza(testo: str, pubblicazione: date) -> Scadenza:
         return Scadenza(
             None,
             METODO_NESSUNO,
-            "Il termine sembra contare dalla pubblicazione sul sito dell'ente e non dalla "
-            "Gazzetta: la scadenza non e' calcolabile da qui, controlla il bando.",
+            "Il termine sembra contare dalla pubblicazione sul sito dell'ente o su un altro "
+            "bollettino (BUR, Unione europea) e non dalla Gazzetta Ufficiale italiana: la "
+            "scadenza non e' calcolabile da qui, controlla il bando.",
         )
     return Scadenza(
         None,
