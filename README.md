@@ -7,6 +7,10 @@ consult the Italian *Gazzetta Ufficiale*. Free, open source (MIT). No codes or d
 
 English | [Italiano](#italiano)
 
+![Demo: "Ci sono concorsi per infermiere in Lombardia?" and the assistant's answer](docs/img/demo.gif)
+
+*Illustrative demo built from a real result of 28 Oct 2026.*
+
 **What you can ask your assistant:**
 
 - "Are there public competitions for nurses in Lombardy?"
