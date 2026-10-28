@@ -26,7 +26,7 @@ def register_scadenze(mcp: FastMCP, get_service: ServiceGetter) -> None:
         Lombardia che scadono presto", "ultimi giorni per fare domanda". Parole chiave e
         regione sono facoltative. Parte dai bandi della 4a Serie Speciale degli ultimi 30
         giorni (come cerca_concorsi) e legge il testo di un numero LIMITATO di bandi (al massimo
-        12 scaricamenti per chiamata, i testi gia' letti sono in cache e non contano): la
+        8 scaricamenti per chiamata, i testi gia' letti sono in cache e non contano): la
         risposta dichiara quanti bandi ha esaminato, quanti testi ha letto e quanti non
         indicano una scadenza. La data e' di norma 30 giorni dalla pubblicazione (con slittamento
         se cade in un giorno festivo) oppure una data scritta nel testo; il campo

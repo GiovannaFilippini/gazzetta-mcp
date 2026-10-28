@@ -184,3 +184,19 @@ async def test_input_errors_are_italian_tool_errors(service):
         await call(service, entro_giorni=-1)
     with pytest.raises(ToolError, match="Regione"):
         await call(service, regione="Atlantide")
+
+
+def test_uncertain_past_deadline_is_not_counted_as_expired():
+    from gazzetta_mcp.scadenze import Scadenza
+    from gazzetta_mcp.scadenze_concorsi import _esito
+
+    oggi, ultimo = date(2026, 10, 28), date(2026, 11, 4)
+
+    def sc(giorno: date, incerta: bool) -> Scadenza:
+        return Scadenza(giorno, "data_esplicita", "x", incerta=incerta)
+
+    assert _esito(sc(date(2026, 10, 10), False), oggi, ultimo) == "scaduta"
+    assert _esito(sc(date(2026, 10, 10), True), oggi, ultimo) == "incerta_scaduta"
+    assert _esito(sc(date(2026, 11, 20), True), oggi, ultimo) == "fuori"
+    assert _esito(sc(date(2026, 10, 30), False), oggi, ultimo) == "in_scadenza"
+    assert _esito(Scadenza(None, "non_rilevata", "x"), oggi, ultimo) == "senza"

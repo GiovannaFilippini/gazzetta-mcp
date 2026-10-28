@@ -20,7 +20,7 @@ from .service import GazzettaService, ServiceError
 
 log = logging.getLogger("gazzetta_mcp")
 
-MAX_LETTURE = 12  # texts downloaded per call (about 3 requests each, one per second)
+MAX_LETTURE = 8  # texts downloaded per call (about 3 requests each, one per second)
 MAX_GIORNI = 60  # largest "entro_giorni"
 MAX_RISULTATI = 50
 MAX_SENZA_SCADENZA = 10  # calls without a deadline listed by name (the rest only counted)
@@ -33,6 +33,19 @@ def _priorita(data_gu: date, oggi: date, entro: int) -> tuple[int, date]:
     standard = data_gu + timedelta(days=30)
     in_finestra = oggi <= standard <= oggi + timedelta(days=entro)
     return (0 if in_finestra else 1, data_gu)
+
+
+def _esito(sc, oggi: date, ultimo: date) -> str:
+    """Where a call goes: "senza", "incerta_scaduta", "scaduta", "fuori" or "in_scadenza".
+
+    A deadline that is uncertain (conflicting dates, e.g. an extension) and already past must not
+    vanish among the expired calls: another date of the text may still be open.
+    """
+    if sc.metodo == METODO_NESSUNO or sc.data is None:
+        return "senza"
+    if sc.data < oggi:
+        return "incerta_scaduta" if sc.incerta else "scaduta"
+    return "fuori" if sc.data > ultimo else "in_scadenza"
 
 
 async def scadenze_concorsi(
@@ -110,11 +123,20 @@ async def scadenze_concorsi(
         letti += 1
         nuove_letture += not atto.get("dalla_cache", False)
         sc = ricava_scadenza(atto.get("testo", ""), c["data_gu"])
-        if sc.metodo == METODO_NESSUNO or sc.data is None:
+        esito = _esito(sc, oggi, ultimo)
+        if esito == "senza":
             senza.append(_senza(c, NON_RILEVATA))
-        elif sc.data < oggi:
+        elif esito == "incerta_scaduta":
+            senza.append(
+                _senza(
+                    c,
+                    f"date contrastanti nel testo: la prima ({sc.data.isoformat()}) e' passata, "
+                    "ma potrebbe esserci una proroga: controlla il bando",
+                )
+            )
+        elif esito == "scaduta":
             scaduti += 1
-        elif sc.data > ultimo:
+        elif esito == "fuori":
             fuori += 1
         else:
             in_scadenza.append(_risultato(c, sc, oggi))
