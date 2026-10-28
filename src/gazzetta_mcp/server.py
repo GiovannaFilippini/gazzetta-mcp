@@ -13,8 +13,9 @@ from fastmcp import FastMCP
 from . import __version__
 from .diagnostics import prova, svuota_cache
 from .models import DISCLAIMER
+from .prompts import register_prompts
 from .service import GazzettaService, build_service
-from .tools import register
+from .tools import register, register_novita, register_scadenze, register_vigente
 
 NAME = "gazzetta-mcp"
 
@@ -23,7 +24,10 @@ INSTRUCTIONS = (
     "Chi ti scrive di solito non conosce codici ne' date: parti sempre dalle parole dell'utente. "
     "Se indica un argomento, un profilo o un concorso usa cerca_concorsi (concorsi) o cerca "
     "(tutto il resto); se chiede le novita' usa ultime_pubblicazioni; se indica un giorno usa "
-    "sommario; per il link a una legge usa rimando_normattiva. Per leggere un atto usa "
+    "sommario; per il link a una legge usa rimando_normattiva, e testo_vigente per leggere un "
+    "articolo di legge com'e' oggi, con le modifiche gia' applicate. Per sapere quali concorsi "
+    "stanno per scadere usa scadenze_concorsi; per le novita' su un argomento dall'ultima volta "
+    "che l'utente ha chiesto usa novita_argomento. Per leggere un atto usa "
     "leggi_atto con il codice (es. 26A05182) preso dai risultati precedenti: NON chiedere mai "
     "all'utente codici, date o serie, ricavali tu e converti le date dette a parole in AAAA-MM-GG. "
     "Spiega i risultati in italiano semplice, senza gergo. I risultati possono essere parziali "
@@ -65,6 +69,10 @@ def create_server(service: GazzettaService | None = None) -> FastMCP:
         return holder["service"]
 
     register(mcp, get_service)
+    register_scadenze(mcp, get_service)
+    register_vigente(mcp, get_service)
+    register_novita(mcp, get_service)
+    register_prompts(mcp)
     return mcp
 
 

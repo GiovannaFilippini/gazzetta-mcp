@@ -14,7 +14,7 @@
      - nessun avanzamento (e un avviso nelle note) con `segna_come_letto=false`, copertura sconosciuta (serie senza aggiornamento automatico, cache vuota, numeri non caricati), risultati troppo numerosi (tetto di 100 della ricerca raggiunto), orologio indietro rispetto all'ultimo controllo, copertura piu' vecchia dell'ultimo controllo; il segno non torna mai indietro;
      - atti piu' recenti dell'ultimo numero esaminato (es. da Normattiva): non mostrati ora, compariranno al controllo successivo, cosi' non risultano letti senza essere stati coperti.
   5. **Dichiarato sempre:** periodo cercato (dal / al), se e' il primo controllo, che si cerca in titoli ed enti e non nel testo completo, che la copertura puo' essere parziale, lacune tra l'ultimo controllo e i numeri disponibili, fonte, link e avvertenza.
-  6. `clear()` della cache (e `--svuota-cache`) **non** cancella la memoria dei controlli: non e' contenuto scaricato ma il ricordo dell'utente di cosa ha gia' visto. Si cancella con `delete_controllo` o con `DELETE FROM novita_controlli`.
+  6. `clear()` della cache **non** cancella la memoria dei controlli: non e' contenuto scaricato ma il ricordo dell'utente di cosa ha gia' visto (si cancella con `delete_controllo` o con `DELETE FROM novita_controlli`). Invece `gazzetta-mcp --svuota-cache --si` cancella l'intero file SQLite e quindi anche i controlli: dopo il comando il primo controllo di ogni argomento mostra di nuovo gli ultimi 7 giorni.
 - **Alternative scartate:**
   - *Salvare l'ora attuale come ultimo controllo:* con copertura parziale farebbe risultare "gia' lette" cose mai viste (vietato dalla specifica).
   - *Un file di stato separato:* un secondo posto da gestire, senza migrazioni e senza la transazione della cache.

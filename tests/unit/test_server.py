@@ -21,6 +21,8 @@ CALLS = [
     ("cerca", {"testo": "decreto", "limite": 5}),
 ]
 
+NEW_TOOLS = {"scadenze_concorsi", "testo_vigente", "novita_argomento"}
+
 
 @pytest.fixture
 async def client():
@@ -29,9 +31,9 @@ async def client():
         yield c
 
 
-async def test_lists_exactly_the_six_tools(client):
+async def test_lists_exactly_the_nine_tools(client):
     tools = {t.name: t for t in await client.list_tools()}
-    assert set(tools) == {name for name, _ in CALLS}
+    assert set(tools) == {name for name, _ in CALLS} | NEW_TOOLS
     assert set(tools["cerca"].input_schema["properties"]) == {
         "testo",
         "serie",
