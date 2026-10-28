@@ -28,6 +28,8 @@ OLD_TOOLS = {
     "rimando_normattiva",
 }
 ALL_TOOLS = NEW_TOOLS | OLD_TOOLS
+# parameters of the tools that a prompt may name, besides the tools themselves
+PARAMETERS = {"entro_giorni"}
 
 
 @pytest.fixture
@@ -65,7 +67,7 @@ async def test_every_cited_tool_exists(client):
     for name in ARGS:
         text = await _text(client, name)
         for word in re.findall(r"\b[a-z]+_[a-z_]+\b", text):
-            assert word in ALL_TOOLS, (name, word)
+            assert word in ALL_TOOLS | PARAMETERS, (name, word)
 
 
 async def test_old_tool_names_match_the_real_server():

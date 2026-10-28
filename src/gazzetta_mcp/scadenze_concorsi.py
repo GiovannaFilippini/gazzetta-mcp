@@ -183,7 +183,7 @@ async def scadenze_concorsi(
             "copertura": (
                 f"Numeri della 4a Serie Speciale dal {dal} al {al} ({len(sommari)} numeri, "
                 f"{esaminati} bandi esaminati, {len(candidati)} corrispondenti ai filtri). "
-                f"Testi letti: {letti}, scadenza non rilevata in {len(senza)}. "
+                f"Testi letti: {letti}, scadenza non rilevata o da controllare in {len(senza)}. "
                 "Sono considerati solo i bandi usciti negli ultimi 30 giorni."
                 if sommari
                 else "Nessun numero della 4a Serie Speciale esaminato."
