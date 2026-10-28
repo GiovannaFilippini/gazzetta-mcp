@@ -504,6 +504,9 @@ class GazzettaService:
                     requests += 1
                 som = self._parser.parse_sommario(page.content, serie, d, numero, self._base)
                 if not som.voci:
+                    # an empty page (maintenance, error served with status 200) must not stay
+                    # cached for 30 days: it is asked again next time
+                    self._cache.delete_http(self._client.url_sommario(d, serie, numero))
                     notes.append(f"Il numero {numero} del {d.isoformat()} risulta vuoto: saltato.")
                     mancanti.append(d)
                     continue

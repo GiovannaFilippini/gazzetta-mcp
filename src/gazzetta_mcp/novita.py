@@ -102,6 +102,7 @@ async def novita_argomento(
     trovati: list[dict[str, Any]] = risposta.get("risultati", [])
     atteso = [s] if s in _REFRESHABLE else [] if s else list(_REFRESHABLE)
     inizio, fino = _copertura(risposta.get("numeri_caricati", []), atteso, dal, note)
+    con_buchi = any(r.get("mancanti") for r in risposta.get("numeri_caricati", []))
     troncata = len(trovati) >= MAX_LIMITE  # the search stopped at its cap: more may exist
 
     nuovi = [
@@ -204,6 +205,16 @@ async def novita_argomento(
         out["messaggio"] = (
             f"Ci sono altri {len(restanti)} atti piu' recenti: richiama lo strumento per vederli "
             "(sono mostrati dal piu' vecchio al piu' recente)."
+        )
+    elif not mostrati and (fino is None or con_buchi):
+        out["messaggio"] = (
+            "Non posso dire che non ci siano novita': "
+            + (
+                f"ho controllato solo fino al {periodo_al}"
+                if periodo_al
+                else "non sono riuscito a stabilire fino a quando ho cercato"
+            )
+            + " (vedi le note)."
         )
     elif not mostrati:
         out["messaggio"] = "Nessuna novita' sull'argomento nel periodo cercato."

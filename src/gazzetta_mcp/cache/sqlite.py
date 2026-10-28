@@ -287,6 +287,11 @@ class SqliteCache:
                 (page.url, page.content, page.content_type, _ts(page.fetched_at)),
             )
 
+    def delete_http(self, url: str) -> None:
+        """Forget one cached page (for example a page that turned out to be empty)."""
+        with self._lock, self._conn:
+            self._conn.execute("DELETE FROM http_pages WHERE url = ?", (url,))
+
     # -- feeds -----------------------------------------------------------------------------
 
     def get_feed(self, serie: Serie, max_age_seconds: int) -> Feed | None:

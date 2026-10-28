@@ -423,3 +423,27 @@ async def test_tool_errors_are_italian(client):
         await client.call_tool("novita_argomento", {"argomento": " "})
     with pytest.raises(ToolError, match="non esiste"):
         await client.call_tool("novita_argomento", {"argomento": "x", "serie": "ZZ"})
+
+
+async def test_page_that_loaded_empty_is_asked_again_and_the_check_catches_up():
+    # a sommario answered 200 without entries (maintenance page): it must not stay cached
+    # for 30 days, or the check would stay stuck before it for good
+    fail = {"/2026/10/02/229/SG": 200}
+    limits = Limits(recent_issues_sg=3, recent_issues_s4=2)
+    service, *_ = make_service(limits=limits, fail=fail)
+    first = await novita_argomento(service, "decreto")
+    assert first["prossimo_controllo_da"] == "2026-10-01"
+    assert "Nessuna novita'" not in first.get("messaggio", "")
+    fail.clear()  # the site is back
+    second = await novita_argomento(service, "decreto")
+    # no hole any more: the check goes up to the shortest series (S4 reaches 2 October)
+    assert second["prossimo_controllo_da"] == "2026-10-02"
+    assert not any("vuoto" in n for n in second["note"])
+
+
+async def test_no_news_is_not_claimed_when_the_check_is_incomplete(svc):
+    svc.numeri = [caricati("2026-09-10", "2026-10-03", mancanti=("2026-10-01",))]
+    out = await chiedi(svc, serie="SG")
+    assert out["mostrate"] == 0
+    assert "Nessuna novita'" not in out["messaggio"]
+    assert "2026-09-30" in out["messaggio"]
