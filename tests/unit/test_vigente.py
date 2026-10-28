@@ -154,6 +154,8 @@ async def test_tool_reads_the_first_article_with_attribution_and_links():
     )
     assert "fa fede solo il testo pubblicato nella Gazzetta Ufficiale" in data["nota"]
     assert "CC BY 4.0" in data["nota"]
+    assert data["licenza"] == "https://creativecommons.org/licenses/by/4.0/"
+    assert "convertito" in data["modifiche"]
     assert "solo il primo articolo" in data["nota"] or "primo articolo" in data["nota"]
     assert data["link_normattiva"] == "https://www.normattiva.it/uri-res/N2Ls?" + URN_BASE
     assert data["fonte"] and all(u.startswith("http") for u in data["fonte"])

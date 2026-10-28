@@ -60,8 +60,9 @@ def register_prompts(mcp: FastMCP) -> None:
         return (
             f"Cerco concorsi pubblici {dove} adatti a questo profilo: {profilo}\n\n"
             "Usa cerca_concorsi con le parole del profilo (titolo di studio, mestiere, ente) e, "
-            "se l'utente ha indicato un luogo, con la regione. Se serve sapere cosa sta per "
-            "scadere usa scadenze_concorsi. Non chiedere altro prima di cercare. Per i dettagli "
+            "se l'utente ha indicato un luogo, con la regione. Per la scadenza dei bandi usa "
+            "scadenze_concorsi: cerca_concorsi da sola non la da'. Non chiedere altro prima di "
+            "cercare. Per i dettagli "
             "di un bando promettente usa leggi_atto, ma solo per i pochi piu' adatti.\n\n"
             "Elenca i bandi aperti in modo ordinato: ente, posti e requisiti principali, scadenza "
             "(prima quelli che scadono prima), link ufficiale. Escludi i bandi gia' scaduti. "

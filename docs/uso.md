@@ -57,7 +57,7 @@ Con `aggiorna=true` (predefinito) e serie SG, S4 o non indicata, prima scarica i
 - "Quali concorsi per infermiere scadono questa settimana?"
 - "Ci sono bandi in Toscana che scadono nei prossimi 15 giorni?"
 
-Legge il testo di un numero limitato di bandi (al massimo 12 per richiesta; quelli già letti restano in cache, quindi una seconda richiesta va avanti) e ricava la scadenza dalla formula del bando ("entro il trentesimo giorno dalla pubblicazione", con slittamento dei festivi) o da una data scritta. Se il bando non indica la scadenza, lo dice e non la inventa. Considera solo i bandi degli ultimi 30 giorni. La data è sempre indicativa: controllala sul bando ufficiale.
+Legge il testo di un numero limitato di bandi (al massimo 8 per richiesta; quelli già letti restano in cache, quindi una seconda richiesta va avanti) e ricava la scadenza dalla formula del bando ("entro il trentesimo giorno dalla pubblicazione", con slittamento dei festivi) o da una data scritta. Se il bando non indica la scadenza, lo dice e non la inventa. Considera solo i bandi degli ultimi 30 giorni. La data è sempre indicativa: controllala sul bando ufficiale.
 
 ## testo_vigente(atto, offset)
 

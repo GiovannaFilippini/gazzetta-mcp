@@ -152,6 +152,8 @@ class VigenteReader:
             "nota": " ".join(note),
             "link_normattiva": permalink,
             "attribuzione": ATTRIBUZIONE,
+            "licenza": "https://creativecommons.org/licenses/by/4.0/",
+            "modifiche": "Testo convertito dal formato originale in testo semplice.",
             "fonte": [permalink, "https://dati.normattiva.it"],
             "avvertenza": DISCLAIMER,
         }
