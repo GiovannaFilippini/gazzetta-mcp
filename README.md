@@ -68,6 +68,13 @@ uvx gazzetta-mcp
 pip install gazzetta-mcp
 ```
 
+### One-click install (Claude Desktop)
+
+Download `gazzetta-mcp-0.1.0.mcpb` from the
+[latest release](https://github.com/GiovannaFilippini/gazzetta-mcp/releases/latest) and
+double-click it (or open it from Claude Desktop, Settings > Extensions). No terminal needed.
+The bundle is built from [mcpb](mcpb) and installs the same `gazzetta-mcp` package from PyPI.
+
 ### From source (works today)
 
 ```bash
@@ -229,6 +236,11 @@ uvx gazzetta-mcp
 # oppure
 pip install gazzetta-mcp
 ```
+
+**Installazione con un clic (Claude Desktop):** scarica `gazzetta-mcp-0.1.0.mcpb` dall'[ultima
+release](https://github.com/GiovannaFilippini/gazzetta-mcp/releases/latest) e aprilo con doppio
+clic (oppure da Claude Desktop, Impostazioni > Estensioni). Non serve il terminale. Il pacchetto
+e' costruito da [mcpb](mcpb) e installa lo stesso pacchetto `gazzetta-mcp` di PyPI.
 
 **Da sorgente** (funziona oggi):
 
