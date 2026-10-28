@@ -33,8 +33,18 @@ def hit(codice: str, giorno: str, titolo: str = "Appalti pubblici") -> dict:
     }
 
 
-def caricati(dal: str, al: str, serie: str = "SG") -> dict:
-    return {"serie": serie, "dal": dal, "al": al, "numeri": 3, "richieste_effettuate": 0}
+def caricati(
+    dal: str, al: str, serie: str = "SG", mancanti: tuple[str, ...] = (), completo: bool = True
+) -> dict:
+    return {
+        "serie": serie,
+        "dal": dal,
+        "al": al,
+        "numeri": 3,
+        "richieste_effettuate": 0,
+        "mancanti": list(mancanti),
+        "completo": completo,
+    }
 
 
 class FakeService:
@@ -297,6 +307,43 @@ async def test_gap_between_last_check_and_loaded_issues_is_declared(svc):
     assert any("potrebbero mancare" in n for n in r["note"])
 
 
+async def test_missing_issue_stops_the_check_before_the_hole(svc):
+    # the issue of 1 October did not load: what it contains must not be marked as read
+    svc.numeri = [
+        caricati("2026-09-10", "2026-10-03", mancanti=("2026-10-01",)),
+        caricati("2026-09-10", "2026-10-02", "S4"),
+    ]
+    out = await chiedi(svc)
+    assert out["segnato_come_letto"] is True
+    assert out["prossimo_controllo_da"] == "2026-09-30"
+    assert any("2026-10-01" in n for n in out["note"])
+
+
+async def test_issue_missing_the_first_time_is_covered_at_the_next_check(svc):
+    svc.numeri = [caricati("2026-09-10", "2026-10-03", mancanti=("2026-10-01",))]
+    await chiedi(svc, serie="SG")
+    svc.hits = [hit("26A00001", "2026-10-01")]
+    svc.numeri = [caricati("2026-09-10", "2026-10-03")]
+    out = await chiedi(svc, serie="SG")
+    assert [r["codice"] for r in out["risultati"]] == ["26A00001"]
+
+
+async def test_issue_missing_on_the_first_day_marks_nothing(svc):
+    # TODAY is 2026-10-05: the first check starts on 2026-09-28
+    svc.numeri = [caricati("2026-09-10", "2026-10-03", mancanti=("2026-09-28",))]
+    out = await chiedi(svc, serie="SG")
+    assert out["segnato_come_letto"] is False
+    assert svc._cache.get_controllo(chiave_argomento("appalti", Serie.SG)) is None
+
+
+async def test_incomplete_index_marks_nothing(svc):
+    # the list of recent issues could not be read: the coverage is unknown
+    svc.numeri = [caricati("2026-09-10", "2026-10-03", completo=False)]
+    out = await chiedi(svc, serie="SG")
+    assert out["segnato_come_letto"] is False
+    assert any("Non ho segnato" in n for n in out["note"])
+
+
 async def test_search_notes_are_passed_on(svc):
     svc.note = ["Aggiornamento della serie S4 non riuscito: boom"]
     r = await chiedi(svc)
@@ -351,6 +398,24 @@ async def test_tool_end_to_end_with_real_search(client):
     r2 = (await client.call_tool("novita_argomento", {"argomento": "Decreti"})).data
     assert r2["primo_controllo"] is False
     assert r2["totale_novita"] == 0  # nothing newer than the last covered day
+
+
+async def test_issue_that_fails_to_load_is_not_lost_through_the_real_service():
+    cache = SqliteCache(":memory:")
+    limits = Limits(recent_issues_sg=3, recent_issues_s4=2)
+    broken, *_ = make_service(limits=limits, cache=cache, fail={"/2026/10/02/229/SG": 500})
+    mcp = FastMCP("test")
+    register_novita(mcp, lambda: broken)
+    async with Client(mcp) as c:
+        r1 = (await c.call_tool("novita_argomento", {"argomento": "decreto"})).data
+    # SG covers 3 October and 1 October but not the 2nd: the check stops at the 1st
+    assert r1["prossimo_controllo_da"] == "2026-10-01"
+    working, *_ = make_service(limits=limits, cache=cache)
+    mcp2 = FastMCP("test")
+    register_novita(mcp2, lambda: working)
+    async with Client(mcp2) as c:
+        r2 = (await c.call_tool("novita_argomento", {"argomento": "decreto"})).data
+    assert r2["periodo_cercato"]["dal"] == "2026-10-01"
 
 
 async def test_tool_errors_are_italian(client):

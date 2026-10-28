@@ -34,22 +34,36 @@ def chiave_argomento(argomento: str, serie: Serie | None) -> str:
 
 
 def _copertura(
-    caricati: list[dict[str, Any]], atteso: list[Serie]
+    caricati: list[dict[str, Any]], atteso: list[Serie], dal: date, note: list[str]
 ) -> tuple[date | None, date | None]:
     """First and last day really covered by the issues ``cerca`` loaded, or (None, None).
 
     With more series the covered period is the one every series reaches (the shortest), and if
     an expected series was not loaded at all the coverage is unknown: a check must never be
-    marked as done for a series that was not looked at.
+    marked as done for a series that was not looked at. The same holds for a series whose list
+    of recent issues could not be read, and an issue that failed to load is a hole: the coverage
+    stops the day before it, so that its acts are looked for again at the next check.
     """
     per_serie = {c["serie"]: c for c in caricati if c.get("al")}
     if not atteso or any(s.value not in per_serie for s in atteso):
         return None, None
     righe = [per_serie[s.value] for s in atteso]
-    return (
-        max(date.fromisoformat(r["dal"]) for r in righe),
-        min(date.fromisoformat(r["al"]) for r in righe),
+    if not all(r.get("completo", True) for r in righe):
+        return None, None
+    fino = min(date.fromisoformat(r["al"]) for r in righe)
+    buchi = sorted(
+        date.fromisoformat(d) for r in righe for d in r.get("mancanti", []) if d >= dal.isoformat()
     )
+    if buchi:
+        note.append(
+            "Non ho potuto caricare i numeri del "
+            + ", ".join(d.isoformat() for d in buchi)
+            + ": il controllo si ferma prima, cosi' al prossimo tentativo vengono cercati di nuovo."
+        )
+        fino = min(fino, buchi[0] - timedelta(days=1))
+        if fino < dal:
+            return None, None
+    return max(date.fromisoformat(r["dal"]) for r in righe), fino
 
 
 async def novita_argomento(
@@ -87,7 +101,7 @@ async def novita_argomento(
     note.extend(risposta.get("note", []))
     trovati: list[dict[str, Any]] = risposta.get("risultati", [])
     atteso = [s] if s in _REFRESHABLE else [] if s else list(_REFRESHABLE)
-    inizio, fino = _copertura(risposta.get("numeri_caricati", []), atteso)
+    inizio, fino = _copertura(risposta.get("numeri_caricati", []), atteso, dal, note)
     troncata = len(trovati) >= MAX_LIMITE  # the search stopped at its cap: more may exist
 
     nuovi = [
