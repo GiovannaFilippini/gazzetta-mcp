@@ -1,5 +1,7 @@
 # gazzetta-mcp
 
+[![PyPI downloads](https://static.pepy.tech/badge/gazzetta-mcp)](https://pepy.tech/projects/gazzetta-mcp)
+
 <!-- mcp-name: io.github.GiovannaFilippini/gazzetta-mcp -->
 
 Unofficial, local [MCP](https://modelcontextprotocol.io) server that lets your AI assistant
