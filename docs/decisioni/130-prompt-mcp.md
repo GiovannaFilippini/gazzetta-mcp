@@ -1,0 +1,9 @@
+# 130 — Richieste pronte (prompt MCP) invece di nuovi strumenti
+
+- **Contesto:** servono comandi pronti ("riassumi un atto per un non giurista", "confronta due decreti") che i client mostrano in un menu. Chi usa l'assistente non e' tecnico (decisione 080): deve poter scegliere un comando e scrivere due parole.
+- **Scelta:** cinque prompt MCP in `prompts.py`, registrati con `register_prompts(mcp)`: `riassumi_atto`, `confronta_decreti`, `concorsi_per_me`, `cosa_e_uscito`, `aggiornamenti_su`. Sono solo testi che istruiscono l'assistente a usare gli strumenti gia' esistenti per nome (compresi `scadenze_concorsi`, `testo_vigente`, `novita_argomento`). Non fanno richieste di rete e non toccano cache o servizio.
+  - Sono prompt e non strumenti perche' non leggono dati ne' fanno ricerche: guidano soltanto il modo di usare gli strumenti. Cosi' la fonte non riceve richieste in piu' e le regole d'uso (richieste solo su richiesta, niente download massivo, limite di frequenza) restano quelle degli strumenti.
+  - Ogni testo chiude con le stesse regole: partire dalle parole dell'utente, mai chiedere codici o date, poche chiamate, risultati possibili parziali, link ufficiale, avvertenza `DISCLAIMER` (testo non ufficiale) e invito a rivolgersi a un professionista per interpretare una norma. Nessun consiglio legale e nessuna funzione promessa che non esista.
+  - Un test controlla che ogni nome di strumento citato esista tra i sei attuali o i tre nuovi.
+- **Alternative scartate:** strumenti che restituiscono riassunti o confronti (il server dovrebbe interpretare i testi, cosa che spetta all'assistente); piu' di cinque prompt (i comandi sembrerebbero tutti simili nel menu).
+- **Come tornare indietro:** togliere la chiamata a `register_prompts` in `server.py` (il menu sparisce, gli strumenti non cambiano) ed eventualmente cancellare `prompts.py` e `tests/unit/test_prompts.py`.
