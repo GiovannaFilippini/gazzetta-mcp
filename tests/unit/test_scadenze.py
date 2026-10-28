@@ -108,10 +108,12 @@ def test_sabato_festivo_se_lo_dice_il_bando():
         + GU
         + " Se il termine cade di sabato o in un giorno festivo e' prorogato al giorno seguente."
     )
-    # 2026-12-02 + 30 = Friday 1 January (holiday) -> Saturday 2 January -> Monday 4 January
+    # 2026-12-02 + 30 = Friday 1 January (holiday): the nearest date is Saturday 2 January;
+    # the text speaks about Saturdays, so it is flagged and the Monday is named as the alternative
     sc = ricava_scadenza(testo, date(2026, 12, 2))
-    assert sc.data == date(2027, 1, 4)
-    assert "sabato" in sc.motivo_spostamento
+    assert sc.data == date(2027, 1, 2)
+    assert sc.incerta
+    assert "2027-01-04" in sc.dettaglio
 
 
 FORMULE = [
@@ -151,7 +153,8 @@ def test_formule_in_giorni(testo, giorni):
     assert sc.metodo == METODO_GIORNI
     assert sc.giorni == giorni
     assert sc.data_nominale == date.fromordinal(pub.toordinal() + giorni)
-    assert not sc.incerta
+    # only the wording that is not the standard "del presente avviso" may make it uncertain
+    assert not sc.incerta or "non e' quella standard" in sc.dettaglio
 
 
 def test_la_data_non_si_ricava_senza_riferimento_alla_gazzetta():
@@ -357,7 +360,7 @@ def test_termine_del_ricorso_non_e_la_scadenza_delle_domande():
 def test_il_termine_del_ricorso_non_cancella_quello_delle_domande():
     testo = (
         "Le domande di partecipazione vanno presentate entro il trentesimo giorno successivo "
-        "alla pubblicazione dell'estratto nella Gazzetta Ufficiale. Avverso il bando e' "
+        "alla pubblicazione del presente estratto nella Gazzetta Ufficiale. Avverso il bando e' "
         "ammesso ricorso al TAR entro 60 giorni dalla pubblicazione nella Gazzetta Ufficiale."
     )
     sc = ricava_scadenza(testo, date(2026, 10, 20))
@@ -415,3 +418,132 @@ def test_altre_pubblicazioni_non_sono_la_gazzetta_italiana(testo):
 def test_ricorso_dopo_la_cifra_non_da_mai_una_data_sicura(testo):
     sc = ricava_scadenza(testo, date(2026, 10, 2))
     assert sc.data is None or sc.incerta
+
+
+# -- third review: Saturday, non-calendar days, other bulletins, other terms ---------------------
+
+SABATO = (
+    "Le domande devono essere presentate entro il trentesimo giorno successivo alla "
+    "pubblicazione del presente avviso" + GU
+)
+
+
+@pytest.mark.parametrize(
+    "frase",
+    [
+        "Il sabato non festivo e' giorno utile per l'invio.",
+        "Il termine non si sospende il sabato e i giorni festivi.",
+        "Resta inteso che il sabato e' giorno lavorativo per l'invio telematico.",
+        "Il sabato e' lavorativo.",
+        "I termini sono consecutivi, compresi il sabato e i giorni festivi.",
+        "Le sedute della commissione non si tengono il sabato ne' in altri giorni festivi.",
+    ],
+)
+def test_il_sabato_non_sposta_mai_la_scadenza_senza_avviso(frase):
+    # 2026-10-15 + 30 = Saturday 14 November: the nearest date is the Saturday, and the text
+    # talks about Saturdays, so it is flagged: it is never moved to Monday as if it were sure
+    sc = ricava_scadenza(SABATO + " " + frase, date(2026, 10, 15))
+    assert sc.data == date(2026, 11, 14)
+    assert sc.incerta
+    assert "2026-11-16" in sc.dettaglio
+
+
+@pytest.mark.parametrize(
+    "termine",
+    [
+        "entro il trentesimo giorno lavorativo successivo alla pubblicazione",
+        "entro 30 giorni, esclusi i festivi, dalla pubblicazione",
+        "entro 30 giorni non festivi dalla pubblicazione",
+        "entro 30 giorni utili dalla pubblicazione",
+        "entro 30 giorni di lavoro dalla pubblicazione",
+        "entro 30 giorni, esclusi i sabati e i festivi, dalla pubblicazione",
+        "entro 15 giorni lavorativi dalla pubblicazione",
+    ],
+)
+def test_giorni_non_di_calendario_non_si_calcolano(termine):
+    testo = "Le domande di partecipazione vanno presentate " + termine + GU
+    sc = ricava_scadenza(testo, date(2026, 10, 13))
+    assert sc.data is None
+
+
+@pytest.mark.parametrize(
+    "fonte",
+    [
+        "nella Gazzetta Ufficiale della Regione siciliana",
+        "sul B.U.R.P.",
+        "sul Bollettino della Provincia autonoma di Bolzano",
+        "nel Foglio degli annunzi legali",
+        "su due quotidiani a diffusione nazionale",
+        "nella sezione Amministrazione trasparente",
+        "nella Gazzetta Ufficiale della Regione autonoma Friuli Venezia Giulia",
+    ],
+)
+def test_altre_fonti_non_sono_la_gazzetta_italiana_nemmeno_cosi(fonte):
+    testo = (
+        f"Estratto pubblicato nella Gazzetta Ufficiale. Le domande di partecipazione entro 30 "
+        f"giorni dalla pubblicazione {fonte}."
+    )
+    assert ricava_scadenza(testo, date(2026, 10, 13)).data is None
+
+
+@pytest.mark.parametrize(
+    "testo",
+    [
+        (
+            "Le domande di partecipazione si presentano online e il colloquio si terra' entro il "
+            "20 dicembre 2026."
+        ),
+        "Le domande vanno presentate online. La prova orale si terra' entro il 20 dicembre 2026.",
+    ],
+)
+def test_data_di_colloquio_o_prova_non_e_la_scadenza_delle_domande(testo):
+    assert ricava_scadenza(testo, date(2026, 12, 7)).data is None
+
+
+@pytest.mark.parametrize(
+    "testo",
+    [
+        "Le domande vanno presentate entro il 20 novembre 2026. Il diario delle prove sara' "
+        "reso noto con pubblicazione" + GU + " almeno 15 giorni prima.",
+        "Le domande scadono il 20 novembre 2026. Con la pubblicazione" + GU + " verra' dato un "
+        "preavviso di almeno 15 giorni per le prove.",
+        "Il termine per le domande e' il 20 novembre 2026. I requisiti sono verificati entro "
+        "30 giorni dalla pubblicazione della graduatoria" + GU,
+        "Le domande vanno presentate entro il 18 novembre 2026. Eventuali osservazioni entro "
+        "10 giorni dalla pubblicazione" + GU,
+        "Il vincitore deve prendere servizio entro 30 giorni dalla pubblicazione della "
+        "graduatoria" + GU + " Le domande di partecipazione si presentano online.",
+    ],
+)
+def test_altri_termini_non_cancellano_la_data_delle_domande(testo):
+    sc = ricava_scadenza(testo, date(2026, 10, 13))
+    assert sc.data in (None, date(2026, 11, 18), date(2026, 11, 20))
+
+
+@pytest.mark.parametrize(
+    "testo",
+    [
+        "Si comunica che il termine di 30 giorni dalla pubblicazione del bando" + GU + " per le "
+        "domande di partecipazione e' prorogato al 30 novembre 2026.",
+        "Il termine per la presentazione delle domande e' prorogato di 15 giorni dalla "
+        "pubblicazione del presente avviso" + GU,
+        "La prova scritta e' rinviata a data da destinarsi. Le domande di partecipazione gia' "
+        "presentate restano valide; le nuove date saranno rese note con pubblicazione"
+        + GU
+        + " almeno 20 giorni prima.",
+    ],
+)
+def test_proroghe_e_rinvii_non_danno_una_data_sicura(testo):
+    sc = ricava_scadenza(testo, date(2026, 10, 13))
+    assert sc.data is None or sc.incerta or sc.data == date(2026, 11, 30)
+
+
+def test_formula_e_data_scritta_che_divergono_sono_segnalate():
+    testo = (
+        "Le domande di partecipazione vanno presentate entro 30 giorni dalla pubblicazione"
+        + GU
+        + " Il termine di presentazione scade il 20 novembre 2026."
+    )
+    sc = ricava_scadenza(testo, date(2026, 10, 13))
+    assert sc.incerta
+    assert "2026-11-20" in sc.dettaglio

@@ -140,7 +140,8 @@ _PAROLE_TERMINE = re.compile(
 )
 _PAROLE_DOMANDA = re.compile(r"domand|candidatur|partecipazion|istanz|presentazion|scad|termin")
 _ATTO = re.compile(
-    r"\b(?:decreto|deliberazione|delibera|determina|bollettino|pubblicat[oa]|gazzetta)\b"
+    r"\b(?:decreto|deliberazione|delibera|determina|bollettino|pubblicat[oa]|gazzetta|"
+    r"colloqui\w*|prov[ae]|diario|calendario|convocazion\w*|graduatori\w*)\b"
 )
 # normalised text has no full stops: look at the words close to each other
 _SABATO_FESTIVO = re.compile(
@@ -154,10 +155,78 @@ _FONTE_LOCALE = re.compile(
     r"\b(?:sito|albo|pretori\w*|internet|web|portale|istituzional\w*|online|on line)\b"
 )
 # the regional bulletin or the EU gazette are other publications, not the Italian GU
-_ALTRA_FONTE = re.compile(r"\b(?:bur[a-z]?|bollettino ufficiale|unione europea|guue|g u u e)\b")
+_ALTRA_FONTE = re.compile(
+    r"\b(?:bur[a-z]?|b u r(?: [a-z]\b)*|bollettin\w*|unione europea|guue|g u u e|gurs|foglio|"
+    r"[1235]a serie|serie generale|parte seconda|"
+    r"quotidian\w*|trasparente|piattaforma|inpa|"
+    r"gazzetta ufficiale (?:della |dell )?(?:regione|regionale|provincia)|"
+    r"gazzetta ufficiale della (?:regione|provincia))\b"
+)
 # appeal terms ("ricorso al TAR entro 60 giorni dalla pubblicazione") are not application terms
 _RICORSO = re.compile(r"\b(?:ricors\w*|impugn\w*|giurisdizional\w*|tar|tribunale amministrativo)\b")
 _PUBBLICAZIONE = re.compile(r"pubblicazion\w*")
+# "30 giorni lavorativi / esclusi i festivi / utili / prima delle prove": not calendar days
+_NON_CALENDARIO = re.compile(
+    r"\s*(?:lavorativ\w*|feriali|utili|di lavoro|esclus\w*|non festivi|festivi|sabati|prima)\b"
+)
+# "almeno 15 giorni", "non meno di 20 giorni": a minimum notice, not a deadline
+_MINIMO = re.compile(r"(?:almeno|non meno di|minimo di)\s*$")
+# terms of the same text that are not the deadline of the applications
+_ALTRO_TERMINE = re.compile(
+    r"\b(?:osservazion\w*|riesame|reclam\w*|presa di servizio|prendere servizio)\b"
+)
+# "dalla pubblicazione della graduatoria / del diario / degli ammessi ..."
+_PUBBLICAZIONE_ALTRO = re.compile(
+    r"^ (?:della|delle|degli|dell|del) "
+    r"(?:graduatori\w*|ammess\w*|elenco|esit\w*|diario|calendario|convocazion\w*|sede|prov[ae])"
+)
+# words that tell the date belongs to an interview, an exam or a commission, not to the applications
+_ALTRA_DATA = re.compile(
+    r"\b(?:colloqui\w*|prov[ae]|seduta|sedute|diario|calendario|convocazion\w*|"
+    r"graduatori\w*)\b"
+)
+# a postponement or an extension changes the terms: the dates of the text are not reliable
+# ("si rinvia alle norme" is the ordinary "refer to", so only the postponed/extended forms count)
+_RINVIO = re.compile(r"\b(?:rinviat[aoei]|prorogat[aoei]|proroga|differit[aoei]|sospes[aoei])\b")
+# the usual holiday rule ("se detto giorno e' festivo il termine e' prorogato al giorno
+# successivo") is not an extension of the term
+_PROROGA_FESTIVO = re.compile(
+    r"\bprorogat[aoei] (?:al|il) (?:primo )?giorno (?:successivo|seguente|non festivo|feriale|"
+    r"lavorativo|utile)\b"
+)
+
+
+def _parla_di_proroga(norm: str) -> bool:
+    return bool(_RINVIO.search(_PROROGA_FESTIVO.sub("", norm)))
+
+
+# "compreso il giorno della pubblicazione": the day is counted, the date is one day earlier
+_INCLUSO = re.compile(
+    r"\b(?:compres[oa]|inclus[oa])\b(?: \w+){0,4} (?:giorno|pubblicazione)\b|"
+    r"\b(?:giorno|pubblicazione)\b(?: \w+){0,4} \b(?:compres[oa]|inclus[oa])\b"
+)
+
+
+def _cifre_discordanti(norm: str) -> bool:
+    """ "30 (venti) giorni": the figure and the word in brackets say two different things."""
+    for m in re.finditer(rf"\b(\d{{1,3}}) ({_NUM}) (?=giorn)", norm):
+        if _numero(m.group(2)) != int(m.group(1)):
+            return True
+    return False
+
+
+def _altri_termini_in_giorni(norm: str, giorni: int) -> bool:
+    """Other terms in days in the text (profiles, fees, documents): the formula may not be alone."""
+    testo = _TONDE.sub(r"\1 ", norm)
+    altri = {
+        _numero(m.group(1))
+        for m in _GIORNI.finditer(testo)
+        # the appeal terms are not terms of the call
+        if not _RICORSO.search(testo[max(0, m.start() - 120) : m.end() + 60])
+    }
+    return any(n is not None and 5 <= n <= MAX_GIORNI and n != giorni for n in altri)
+
+
 # characters between "pubblicazione" and "Gazzetta" before the link between the two is lost
 _DISTANZA_GAZZETTA = 90
 
@@ -202,7 +271,7 @@ def _origine_termine(testo: str, inizio: int) -> str | None:
         ):
             return "locale"
         return "gazzetta"
-    if _FONTE_LOCALE.search(dopo[:40]) or _ALTRA_FONTE.search(dopo[:40]):
+    if _FONTE_LOCALE.search(dopo[:60]) or _ALTRA_FONTE.search(dopo[:60]):
         return "locale"
     # "pubblicato nella Gazzetta ..., a quindici giorni dalla pubblicazione": the GU comes first
     if "gazzetta" in prima_pub:
@@ -234,8 +303,14 @@ def _formule_giorni(norm: str, origine: str = "gazzetta") -> list[tuple[int, boo
         if not _PAROLE_DOMANDA.search(testo[max(0, m.start() - 450) : m.end() + 170]):
             continue
         # a term of "N working days" or counted from something else is not this formula
-        dopo = testo[m.end() : m.end() + 25]
-        if re.match(r"\s*(?:lavorativi|feriali)", dopo):
+        if _NON_CALENDARIO.match(testo[m.end() : m.end() + 30]):
+            continue
+        if _MINIMO.search(testo[max(0, m.start() - 20) : m.start()]):
+            continue
+        if _ALTRO_TERMINE.search(testo[max(0, m.start() - 100) : m.start()]):
+            continue
+        pub = _PUBBLICAZIONE.search(testo, max(0, m.start() - 60), m.end() + 170)
+        if pub and _PUBBLICAZIONE_ALTRO.match(testo[pub.end() : pub.end() + 40]):
             continue
         presente = bool(re.search(r"presente (?:avviso|bando|estratto|comunicato)", finestra))
         dubbia = bool(_RICORSO.search(testo[m.end() : m.end() + 100]))
@@ -264,6 +339,9 @@ def _formule_data(norm: str, pubblicazione: date) -> list[date]:
         # between the word of "deadline" and the date there must not be an act: "con decreto
         # n. 12 del 3 ottobre 2026" is the date of the act, not the deadline
         if _ATTO.search(prima[parole[-1].end() :]):
+            continue
+        # "il colloquio si terra' entro il 20 dicembre": the date of an interview or an exam
+        if _ALTRA_DATA.search(prima[-80:]):
             continue
         # the bando of a reopening may quote the old deadline: it is before the publication
         if d < pubblicazione:
@@ -306,24 +384,58 @@ def ricava_scadenza(testo: str, pubblicazione: date) -> Scadenza:
         giorni = formule[0][0]
         incerta = len({f[0] for f in formule}) > 1 or formule[0][3]
         nominale = pubblicazione + timedelta(days=giorni)
-        data, motivo = primo_giorno_utile(nominale, bool(_SABATO_FESTIVO.search(norm)))
+        # the Saturday never moves the date on its own: if the text speaks about Saturdays the
+        # nearest date is given, flagged, with the alternative
+        data, motivo = primo_giorno_utile(nominale, False)
+        extra = ""
+        if _SABATO_FESTIVO.search(norm):
+            alternativa, _ = primo_giorno_utile(nominale, True)
+            if alternativa != data:
+                incerta = True
+                extra = (
+                    "; il bando parla del sabato: se il sabato non conta come giorno utile la "
+                    f"scadenza e' {alternativa.isoformat()}"
+                )
+        scritte = _intervallo_domande(norm, pubblicazione) or _formule_data(norm, pubblicazione)
+        diverse = sorted({d for d in scritte if d not in (data, nominale)})
+        if diverse:
+            incerta = True
+            extra += "; nel testo c'e' anche la data " + ", ".join(d.isoformat() for d in diverse)
+        if _parla_di_proroga(norm):
+            incerta = True
+            extra += "; il testo parla di rinvio o proroga"
+        if _INCLUSO.search(norm):
+            incerta = True
+            extra += "; il testo dice che il giorno della pubblicazione e' compreso nel conteggio"
+        if _cifre_discordanti(norm):
+            incerta = True
+            extra += "; cifra e lettere dei giorni non coincidono"
+        if _altri_termini_in_giorni(norm, giorni):
+            incerta = True
+            extra += "; nel testo ci sono anche altri termini in giorni"
+        if not formule[0][1]:
+            incerta = True
+            extra += "; la formula non e' quella standard del presente avviso"
         dettaglio = (
             f"{giorni} giorni dalla pubblicazione in Gazzetta Ufficiale del "
             f"{pubblicazione.isoformat()} (il giorno della pubblicazione non si conta)"
         )
         if motivo:
             dettaglio += f"; il {nominale.isoformat()} non e' un giorno utile ({motivo}), slitta"
+        dettaglio += extra
         if incerta:
-            dettaglio += "; nel testo compaiono termini diversi o un ricorso: controlla il bando"
+            dettaglio += "; controlla il bando"
         return Scadenza(data, METODO_GIORNI, dettaglio + ".", giorni, nominale, motivo, incerta)
 
     esplicite = _intervallo_domande(norm, pubblicazione) or _formule_data(norm, pubblicazione)
     if esplicite:
         data = esplicite[0]
-        incerta = len(set(esplicite)) > 1
+        incerta = len(set(esplicite)) > 1 or _parla_di_proroga(norm)
         dettaglio = f"Data scritta nel testo del bando: {data.isoformat()}"
         if incerta:
-            dettaglio += "; nel testo compaiono altre date possibili: controlla il bando"
+            dettaglio += (
+                "; nel testo compaiono altre date possibili o un rinvio: controlla il bando"
+            )
         return Scadenza(data, METODO_DATA, dettaglio + ".", incerta=incerta)
 
     if _formule_giorni(norm, "locale"):
