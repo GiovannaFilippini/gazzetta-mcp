@@ -148,6 +148,18 @@ _SABATO_FESTIVO = re.compile(
 )
 
 
+# A term counted from the publication on the website of the body (or its notice board) is not
+# the formula of the GU: the date of the GU would be wrong by days or weeks.
+_FONTE_LOCALE = re.compile(
+    r"\b(?:sito|albo|pretori\w*|internet|web|portale|istituzional\w*|online|on line)\b"
+)
+# appeal terms ("ricorso al TAR entro 60 giorni dalla pubblicazione") are not application terms
+_RICORSO = re.compile(r"\b(?:ricors\w*|impugn\w*|giurisdizional\w*|tar|tribunale amministrativo)\b")
+_PUBBLICAZIONE = re.compile(r"pubblicazion\w*")
+# characters between "pubblicazione" and "Gazzetta" before the link between the two is lost
+_DISTANZA_GAZZETTA = 90
+
+
 def _numero(token: str) -> int | None:
     if token.isdigit():
         return int(token)
@@ -161,8 +173,40 @@ def _data_valida(g: int, m: int, a: int) -> date | None:
         return None
 
 
-def _formule_giorni(norm: str) -> list[tuple[int, bool, str]]:
-    """Every "N days from the publication in the GU" in the text: (N, "presente", excerpt)."""
+def _origine_termine(testo: str, inizio: int) -> str | None:
+    """Where the "publication" of a formula of days happens: "gazzetta", "locale" or None.
+
+    Looks at the first "pubblicazione" from the figure on (else at the closest one before it)
+    and at the words up to the first "Gazzetta" after it: if the website or the notice board of
+    the body comes in between, the term is counted from that publication ("locale"), not from
+    the GU.
+    """
+    pub = _PUBBLICAZIONE.search(testo, max(0, inizio - 60), inizio + 170)
+    if not pub:
+        prima = list(_PUBBLICAZIONE.finditer(testo, max(0, inizio - 170), inizio))
+        if not prima:
+            return None
+        pub = prima[-1]
+    dopo = testo[pub.end() : pub.end() + _DISTANZA_GAZZETTA]
+    gazzetta = dopo.find("gazzetta")
+    if gazzetta != -1:
+        return "locale" if _FONTE_LOCALE.search(dopo[:gazzetta]) else "gazzetta"
+    if _FONTE_LOCALE.search(dopo[:40]):
+        return "locale"
+    # "pubblicato nella Gazzetta ..., a quindici giorni dalla pubblicazione": the GU comes first
+    prima_pub = testo[max(0, pub.start() - _DISTANZA_GAZZETTA) : pub.start()]
+    ultima = prima_pub.rfind("gazzetta")
+    if ultima != -1 and not _FONTE_LOCALE.search(prima_pub[ultima:]):
+        return "gazzetta"
+    return None
+
+
+def _formule_giorni(norm: str, origine: str = "gazzetta") -> list[tuple[int, bool, str]]:
+    """Every "N days from the publication in the GU" in the text: (N, "presente", excerpt).
+
+    With ``origine="locale"`` it returns the formulas counted from the website of the body
+    instead (used only to say why no date is given).
+    """
     testo = _TONDE.sub(r"\1 ", norm)
     trovate = []
     for m in _GIORNI.finditer(testo):
@@ -170,7 +214,9 @@ def _formule_giorni(norm: str) -> list[tuple[int, bool, str]]:
         if n is None or not 5 <= n <= MAX_GIORNI:
             continue
         finestra = testo[max(0, m.start() - 170) : m.end() + 170]
-        if "pubblicazion" not in finestra or "gazzetta" not in finestra:
+        if _origine_termine(testo, m.start()) != origine:
+            continue
+        if _RICORSO.search(testo[max(0, m.start() - 120) : m.end()]):
             continue
         if not _PAROLE_DOMANDA.search(testo[max(0, m.start() - 450) : m.end() + 170]):
             continue
@@ -266,6 +312,13 @@ def ricava_scadenza(testo: str, pubblicazione: date) -> Scadenza:
             dettaglio += "; nel testo compaiono altre date possibili: controlla il bando"
         return Scadenza(data, METODO_DATA, dettaglio + ".", incerta=incerta)
 
+    if _formule_giorni(norm, "locale"):
+        return Scadenza(
+            None,
+            METODO_NESSUNO,
+            "Il termine sembra contare dalla pubblicazione sul sito dell'ente e non dalla "
+            "Gazzetta: la scadenza non e' calcolabile da qui, controlla il bando.",
+        )
     return Scadenza(
         None,
         METODO_NESSUNO,

@@ -309,3 +309,58 @@ def test_slittamento_dei_testi_reali(testi_reali):
     assert sc.data_nominale == date(2026, 11, 1)
     assert sc.data == date(2026, 11, 2)
     assert "Ognissanti" in sc.motivo_spostamento
+
+
+@pytest.mark.parametrize(
+    "testo",
+    [
+        (
+            "Le domande vanno presentate entro 30 giorni dalla data di pubblicazione del bando "
+            "sul sito istituzionale dell'ente. L'estratto e' pubblicato nella Gazzetta Ufficiale."
+        ),
+        (
+            "Le domande di partecipazione entro 30 giorni dalla pubblicazione sul sito dell'ente "
+            "(albo online). L'estratto e' stato pubblicato nella Gazzetta Ufficiale."
+        ),
+        (
+            "Presentazione delle domande entro 60 giorni dalla pubblicazione sul sito web "
+            "dell'azienda; avviso di pubblicazione nella Gazzetta Ufficiale."
+        ),
+        (
+            "Le domande entro 15 giorni dalla pubblicazione sull'albo pretorio; l'estratto e' in "
+            "Gazzetta Ufficiale."
+        ),
+        (
+            "L'estratto e' pubblicato nella Gazzetta Ufficiale. Le domande vanno presentate "
+            "entro 30 giorni dalla pubblicazione sul sito dell'ente."
+        ),
+    ],
+)
+def test_termine_dal_sito_dell_ente_non_e_calcolato_dalla_gazzetta(testo):
+    # the term starts from another date: a sure but wrong date would be worse than none
+    sc = ricava_scadenza(testo, date(2026, 10, 20))
+    assert sc.data is None
+    assert sc.metodo == METODO_NESSUNO
+    assert "sito" in sc.dettaglio
+
+
+def test_termine_del_ricorso_non_e_la_scadenza_delle_domande():
+    testo = (
+        "Le domande di partecipazione si presentano online. Avverso il bando e' ammesso "
+        "ricorso al TAR entro 60 giorni dalla pubblicazione nella Gazzetta Ufficiale."
+    )
+    sc = ricava_scadenza(testo, date(2026, 10, 20))
+    assert sc.data is None
+    assert sc.metodo == METODO_NESSUNO
+
+
+def test_il_termine_del_ricorso_non_cancella_quello_delle_domande():
+    testo = (
+        "Le domande di partecipazione vanno presentate entro il trentesimo giorno successivo "
+        "alla pubblicazione dell'estratto nella Gazzetta Ufficiale. Avverso il bando e' "
+        "ammesso ricorso al TAR entro 60 giorni dalla pubblicazione nella Gazzetta Ufficiale."
+    )
+    sc = ricava_scadenza(testo, date(2026, 10, 20))
+    assert sc.data == date(2026, 11, 19)
+    assert sc.giorni == 30
+    assert not sc.incerta
