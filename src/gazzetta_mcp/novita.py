@@ -19,6 +19,7 @@ from .service import _REFRESHABLE, GazzettaService, ServiceError, _parse_serie
 
 PRIMI_GIORNI = 7  # first check: nothing remembered yet, look at the last week
 MAX_LIMITE = 100
+MAX_ARGOMENTO = 200  # characters: a topic is a few words
 
 
 def chiave_argomento(argomento: str, serie: Serie | None) -> str:
@@ -75,6 +76,10 @@ async def novita_argomento(
 ) -> dict[str, Any]:
     if not (argomento or "").strip():
         raise ServiceError("Indica l'argomento di cui vuoi le novita'.")
+    if len(argomento) > MAX_ARGOMENTO:
+        raise ServiceError(
+            f"L'argomento e' troppo lungo (al massimo {MAX_ARGOMENTO} caratteri): usa poche parole."
+        )
     s = _parse_serie(serie)
     chiave = chiave_argomento(argomento, s)
     limite = max(1, min(int(limite), MAX_LIMITE))
@@ -103,6 +108,8 @@ async def novita_argomento(
     atteso = [s] if s in _REFRESHABLE else [] if s else list(_REFRESHABLE)
     inizio, fino = _copertura(risposta.get("numeri_caricati", []), atteso, dal, note)
     con_buchi = any(r.get("mancanti") for r in risposta.get("numeri_caricati", []))
+    # the loaded issues start after the day to cover: the days in between were not looked at
+    vuoto_iniziale = inizio is not None and inizio > dal
     troncata = len(trovati) >= MAX_LIMITE  # the search stopped at its cap: more may exist
 
     nuovi = [
@@ -199,6 +206,7 @@ async def novita_argomento(
             for h in mostrati
         ],
         "segnato_come_letto": False,
+        "copertura_incompleta": bool(fino is None or con_buchi or vuoto_iniziale),
         "note": note,
     }
     if restanti:
@@ -206,13 +214,20 @@ async def novita_argomento(
             f"Ci sono altri {len(restanti)} atti piu' recenti: richiama lo strumento per vederli "
             "(sono mostrati dal piu' vecchio al piu' recente)."
         )
-    elif not mostrati and (fino is None or con_buchi):
+    elif not mostrati and (fino is None or con_buchi or vuoto_iniziale):
         out["messaggio"] = (
             "Non posso dire che non ci siano novita': "
             + (
                 f"ho controllato solo fino al {periodo_al}"
                 if periodo_al
                 else "non sono riuscito a stabilire fino a quando ho cercato"
+            )
+            + (
+                f" e a partire dal {inizio.isoformat()}: gli atti dal {dal.isoformat()} al "
+                f"{(inizio - timedelta(days=1)).isoformat()} non sono stati controllati, "
+                "guarda anche il sito ufficiale"
+                if vuoto_iniziale
+                else ""
             )
             + " (vedi le note)."
         )

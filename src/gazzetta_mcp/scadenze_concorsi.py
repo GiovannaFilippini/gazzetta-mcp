@@ -166,6 +166,16 @@ async def scadenze_concorsi(
     if reg is not None and not candidati and sommari:
         note.append("Nessun bando della regione indicata tra quelli esaminati.")
 
+    messaggio = None
+    if not in_scadenza and (non_letti or senza or errori):
+        messaggio = (
+            "Non posso dire che nessun concorso scada nel periodo: "
+            f"{non_letti} bandi non sono stati letti e {len(senza)} non hanno una scadenza "
+            "sicura. Controlla anche i bandi elencati come 'senza scadenza rilevata' e il sito "
+            "dell'ente."
+        )
+    elif not in_scadenza:
+        messaggio = "Nessun concorso tra quelli esaminati scade nel periodo indicato."
     risultati = [{**r, "data_gu": r["data_gu"].isoformat()} for r in mostrati]
     senza_elenco = [{**s, "data_gu": s["data_gu"].isoformat()} for s in senza[:MAX_SENZA_SCADENZA]]
     if len(senza) > len(senza_elenco):
@@ -202,6 +212,7 @@ async def scadenze_concorsi(
                 "sul bando ufficiale. Dove il testo non la indica non viene stimata."
             ),
             "note": note,
+            "messaggio": messaggio,
             "totale": len(in_scadenza),
             "mostrati": len(mostrati),
             "risultati": risultati,

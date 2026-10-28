@@ -155,6 +155,8 @@ async def test_deadline_not_found_is_never_invented(service):
     assert voce["codice"] == "26E05295" and voce["scadenza"] is None
     assert voce["come"] == "scadenza non rilevata, controlla il bando"
     assert voce["scadenza_ricavata_da"] == "non_rilevata"
+    # nothing sure was found and a call has no deadline: never "no call expires"
+    assert "Non posso dire" in data["messaggio"]
 
 
 async def test_window_and_already_expired(service):

@@ -447,3 +447,23 @@ async def test_no_news_is_not_claimed_when_the_check_is_incomplete(svc):
     assert out["mostrate"] == 0
     assert "Nessuna novita'" not in out["messaggio"]
     assert "2026-09-30" in out["messaggio"]
+
+
+async def test_late_start_of_the_loaded_issues_is_declared_not_silent(svc):
+    # a long absence: the issues loaded start after the day to cover, the days in between
+    # were never looked at: it must be said, not only noted
+    svc.numeri = [caricati("2026-10-02", "2026-10-03"), caricati("2026-10-02", "2026-10-02", "S4")]
+    out = await chiedi(svc)
+    assert out["copertura_incompleta"] is True
+    assert "Non posso dire che non ci siano novita'" in out["messaggio"]
+    assert "2026-09-28" in out["messaggio"] and "2026-10-01" in out["messaggio"]
+
+
+async def test_complete_coverage_is_not_flagged(svc):
+    out = await chiedi(svc, serie="SG")
+    assert out["copertura_incompleta"] is False
+
+
+async def test_very_long_topic_is_refused(svc):
+    with pytest.raises(ServiceError, match="troppo lungo"):
+        await chiedi(svc, "appalti " * 100)
