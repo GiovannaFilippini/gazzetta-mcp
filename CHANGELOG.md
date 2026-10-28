@@ -7,6 +7,23 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- One-click install for Claude Desktop: the `mcpb/` folder builds a `.mcpb` Desktop Extension that
+  installs the published `gazzetta-mcp` package from PyPI.
+- README: PyPI downloads badge and an animated demo.
+- README: "Sources and attribution" section, including the CC BY 4.0 credit for Normattiva Open
+  Data results.
+
+### Changed
+
+- README: the English text now matches the Italian one and the code (`cerca` with the Normattiva
+  archive, `solo_vigenti` and `periodo`; the archive and advanced-search environment variables).
+- README (Italian): proper accented letters; series codes added.
+- README: `uv` is the recommended install and fetches Python by itself; "from source" renamed
+  "development version".
+- LICENSE: copyright holder is now Giovanna Filippini (as in `pyproject.toml`).
+
 ## [0.1.0] - 2026-10-16
 
 ### Changed
@@ -32,3 +49,6 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Project documentation: README (English and Italian), usage guide, contributing guide, code of
   conduct, security policy, issue and pull request templates.
 - Release workflow for PyPI trusted publishing (manual trigger only, not enabled).
+
+[Unreleased]: https://github.com/GiovannaFilippini/gazzetta-mcp/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/GiovannaFilippini/gazzetta-mcp/releases/tag/v0.1.0

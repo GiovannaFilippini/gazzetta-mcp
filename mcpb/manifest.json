@@ -1,0 +1,74 @@
+{
+  "manifest_version": "0.4",
+  "name": "gazzetta-mcp",
+  "display_name": "Gazzetta Ufficiale (unofficial)",
+  "version": "0.1.0",
+  "description": "Unofficial, local server to consult the Italian Gazzetta Ufficiale: public competitions, latest publications, acts and Normattiva links.",
+  "long_description": "Lets your AI assistant consult the Italian Gazzetta Ufficiale. Ask in plain Italian, no codes or dates needed. This project is NOT official and is not affiliated with the Gazzetta Ufficiale or the Istituto Poligrafico e Zecca dello Stato: texts are not authentic, only the printed Gazzetta Ufficiale is authoritative.",
+  "author": {
+    "name": "Giovanna Filippini",
+    "url": "https://github.com/GiovannaFilippini"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/GiovannaFilippini/gazzetta-mcp"
+  },
+  "homepage": "https://github.com/GiovannaFilippini/gazzetta-mcp",
+  "support": "https://github.com/GiovannaFilippini/gazzetta-mcp/issues",
+  "license": "MIT",
+  "keywords": [
+    "gazzetta-ufficiale",
+    "italia",
+    "normattiva",
+    "concorsi"
+  ],
+  "server": {
+    "type": "uv",
+    "entry_point": "server.py",
+    "mcp_config": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "${__dirname}",
+        "server.py"
+      ]
+    }
+  },
+  "tools": [
+    {
+      "name": "ultime_pubblicazioni",
+      "description": "Latest publications of a series"
+    },
+    {
+      "name": "sommario",
+      "description": "Table of contents of the issue of a given date"
+    },
+    {
+      "name": "leggi_atto",
+      "description": "Text of an act from its editorial code"
+    },
+    {
+      "name": "cerca_concorsi",
+      "description": "Search public competitions"
+    },
+    {
+      "name": "rimando_normattiva",
+      "description": "Permanent Normattiva link for an act"
+    },
+    {
+      "name": "cerca",
+      "description": "Search titles and summaries of recent issues"
+    }
+  ],
+  "compatibility": {
+    "platforms": [
+      "darwin",
+      "win32",
+      "linux"
+    ],
+    "runtimes": {
+      "python": ">=3.10,<4.0"
+    }
+  }
+}
