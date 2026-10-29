@@ -25,6 +25,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- One shared rate limiter for all requests to Normattiva (archive search and `testo_vigente`):
+  together they now stay at the configured rate instead of twice that.
 - The local cache schema is now version 3 (new table with the last check per topic). An older
   gazzetta-mcp refuses to open a cache created by this version: clear it with
   `gazzetta-mcp --svuota-cache --si`, or see decision 120 to go back by hand.

@@ -12,7 +12,6 @@ from fastmcp.exceptions import ToolError
 
 from ..service import GazzettaService, user_message
 from ..sources.normattiva_vigente import NormattivaVigenteClient
-from ..sources.ratelimit import RateLimiter
 from ..vigente import VigenteReader
 
 log = logging.getLogger("gazzetta_mcp")
@@ -24,7 +23,6 @@ def register_vigente(
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> None:
     """Register ``testo_vigente``. ``transport`` is only for tests (no network)."""
-    limiters: dict[float, RateLimiter] = {}
 
     @mcp.tool
     async def testo_vigente(atto: str, offset: int = 0) -> dict[str, Any]:
@@ -47,9 +45,7 @@ def register_vigente(
         """
         service = get_service()
         settings = service._settings  # same settings and cache as the other tools
-        limiter = limiters.setdefault(
-            settings.requests_per_second, RateLimiter(settings.requests_per_second)
-        )
+        limiter = service._normattiva_limiter  # shared with the archive search
         client = NormattivaVigenteClient(
             settings, cache=service._cache, transport=transport, limiter=limiter
         )

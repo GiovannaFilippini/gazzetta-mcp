@@ -34,6 +34,7 @@ from .sources.gu import (
     sommario_matches,
 )
 from .sources.normattiva import NormattivaLinkBuilder
+from .sources.ratelimit import RateLimiter
 from .sources.ricerca_gu import RicercaGuClient
 
 # Feeds that are already cached are used for date lookups whatever their age.
@@ -164,6 +165,7 @@ class GazzettaService:
         closers: tuple[Callable[[], Any], ...] = (),
         archivio: ArchiveSearch | None = None,
         ricerca_gu: ArchiveSearch | None = None,
+        normattiva_limiter: RateLimiter | None = None,
     ) -> None:
         self._client = client
         self._parser = parser
@@ -176,6 +178,10 @@ class GazzettaService:
         self._closers = closers
         self._archivio = archivio
         self._ricerca_gu = ricerca_gu
+        # One limiter for the whole Normattiva site, shared by every client that calls it.
+        self._normattiva_limiter = normattiva_limiter or RateLimiter(
+            self._settings.requests_per_second
+        )
         self._base = self._settings.gu_base_url.rstrip("/")
 
     async def aclose(self) -> None:
@@ -943,13 +949,19 @@ def build_service(settings: Settings | None = None) -> GazzettaService:
             )
         except ValueError:
             pass
-    archivio = ArchivioClient(settings, cache=cache) if settings.archivio_normattiva else None
+    normattiva_limiter = RateLimiter(settings.requests_per_second)
+    archivio = (
+        ArchivioClient(settings, cache=cache, limiter=normattiva_limiter)
+        if settings.archivio_normattiva
+        else None
+    )
     ricerca_gu = RicercaGuClient(settings, cache=cache) if settings.ricerca_gu else None
     closers = (client.aclose, cache.close)
     closers += tuple(c.aclose for c in (archivio, ricerca_gu) if c is not None)
     return GazzettaService(
         archivio=archivio,
         ricerca_gu=ricerca_gu,
+        normattiva_limiter=normattiva_limiter,
         client=client,
         parser=GuParser(),
         cache=cache,
