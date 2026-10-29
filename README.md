@@ -64,8 +64,6 @@ respectful of the source. See [docs/fonti.md](docs/fonti.md).
 | `testo_vigente` | `atto`, `offset` | Text of **one article** of a law as it stands today, amendments included (unlike `leggi_atto`, which gives the originally published text). One article at a time, from Normattiva Open Data (CC BY 4.0); for the whole act use the link from `rimando_normattiva` |
 | `novita_argomento` | `argomento`, `serie`, `segna_come_letto`, `limite` | What came out on a topic since you last asked. The last check is remembered only on your computer; the first time it shows the last 7 days. Searches titles and issuing bodies, not full texts; the words you ask about are also sent to Normattiva for the archive search (switch it off with `GAZZETTA_MCP_ARCHIVIO_NORMATTIVA=0`) |
 
-> `scadenze_concorsi`, `testo_vigente`, `novita_argomento` and the ready-made prompts are in the development version and will arrive with the next release: the 0.1.0 package and the `.mcpb` bundle do not include them yet.
-
 Series codes: `SG` Serie Generale, `S1` Corte Costituzionale, `S2` Unione Europea, `S3` Regioni,
 `S4` Concorsi ed esami, `S5` Contratti pubblici, `P2` Parte II.
 
@@ -99,7 +97,7 @@ pip install gazzetta-mcp
 
 ### One-click install (Claude Desktop)
 
-Download `gazzetta-mcp-0.1.0.mcpb` from the
+Download `gazzetta-mcp-0.2.0.mcpb` from the
 [latest release](https://github.com/GiovannaFilippini/gazzetta-mcp/releases/latest) and
 double-click it (or open it from Claude Desktop, Settings > Extensions). No terminal needed.
 If double-clicking does nothing (Windows does not always link `.mcpb` files to Claude Desktop),
@@ -273,8 +271,6 @@ e di dichiarare il carattere non autentico e gratuito dei testi. Vedi [docs/font
 Sigle delle serie: `SG` Serie Generale, `S1` Corte Costituzionale, `S2` Unione Europea,
 `S3` Regioni, `S4` Concorsi ed esami, `S5` Contratti pubblici, `P2` Parte II.
 
-> `scadenze_concorsi`, `testo_vigente`, `novita_argomento` e le richieste già pronte sono nella versione di sviluppo e arriveranno con la prossima versione: il pacchetto 0.1.0 e il file `.mcpb` non le contengono ancora.
-
 ### Richieste già pronte
 
 Cinque comandi che il tuo assistente mostra in un menu: scegline uno e scrivi due parole.
@@ -305,7 +301,7 @@ uvx gazzetta-mcp
 pip install gazzetta-mcp
 ```
 
-**Installazione con un clic (Claude Desktop):** scarica `gazzetta-mcp-0.1.0.mcpb` dall'[ultima
+**Installazione con un clic (Claude Desktop):** scarica `gazzetta-mcp-0.2.0.mcpb` dall'[ultima
 release](https://github.com/GiovannaFilippini/gazzetta-mcp/releases/latest) e aprilo con doppio
 clic (oppure da Claude Desktop, Impostazioni > Estensioni). Non serve il terminale. Se il doppio
 clic non fa niente (Windows non sempre collega i file `.mcpb` a Claude Desktop), apri Claude Desktop,

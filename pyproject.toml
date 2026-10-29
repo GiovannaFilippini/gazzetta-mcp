@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "gazzetta-mcp"
-version = "0.1.0"
+version = "0.2.0"
 description = "Free, local MCP server to consult and search the Italian Gazzetta Ufficiale. Unofficial."
 readme = "README.md"
 license = { text = "MIT" }

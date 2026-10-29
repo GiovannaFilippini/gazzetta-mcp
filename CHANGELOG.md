@@ -7,6 +7,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-29
+
 ### Added
 
 - One-click install for Claude Desktop: the `mcpb/` folder builds a `.mcpb` Desktop Extension that
@@ -37,6 +39,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - README: `uv` is the recommended install and fetches Python by itself; "from source" renamed
   "development version".
 - LICENSE: copyright holder is now Giovanna Filippini (as in `pyproject.toml`).
+- README: tip for when double-clicking the `.mcpb` file does nothing (drag it onto Settings > Extensions).
 
 ## [0.1.0] - 2026-10-16
 
@@ -64,5 +67,6 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   conduct, security policy, issue and pull request templates.
 - Release workflow for PyPI trusted publishing (manual trigger only, not enabled).
 
-[Unreleased]: https://github.com/GiovannaFilippini/gazzetta-mcp/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/GiovannaFilippini/gazzetta-mcp/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/GiovannaFilippini/gazzetta-mcp/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/GiovannaFilippini/gazzetta-mcp/releases/tag/v0.1.0

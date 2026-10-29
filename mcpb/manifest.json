@@ -2,7 +2,7 @@
   "manifest_version": "0.4",
   "name": "gazzetta-mcp",
   "display_name": "Gazzetta Ufficiale (unofficial)",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Unofficial, local server to consult the Italian Gazzetta Ufficiale: public competitions, latest publications, acts and Normattiva links.",
   "long_description": "Lets your AI assistant consult the Italian Gazzetta Ufficiale. Ask in plain Italian, no codes or dates needed. This project is NOT official and is not affiliated with the Gazzetta Ufficiale or the Istituto Poligrafico e Zecca dello Stato: texts are not authentic, only the printed Gazzetta Ufficiale is authoritative.",
   "author": {
@@ -59,6 +59,18 @@
     {
       "name": "cerca",
       "description": "Search titles and summaries of recent issues"
+    },
+    {
+      "name": "scadenze_concorsi",
+      "description": "Competitions about to expire, with an indicative deadline"
+    },
+    {
+      "name": "testo_vigente",
+      "description": "Text of one article of a law as it stands today"
+    },
+    {
+      "name": "novita_argomento",
+      "description": "What is new on a topic since the last check"
     }
   ],
   "compatibility": {
