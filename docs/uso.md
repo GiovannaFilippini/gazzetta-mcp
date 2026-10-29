@@ -51,3 +51,28 @@ Funziona anche a cache vuota: non servono codici o numeri. Al primo uso scarica 
 - "Trova gli atti che citano 'bonus' pubblicati a ottobre 2026."
 
 Con `aggiorna=true` (predefinito) e serie SG, S4 o non indicata, prima scarica i sommari dei numeri recenti non ancora in cache (SG: gli ultimi 24, circa 30 giorni; S4: gli ultimi 9; al massimo 30 per chiamata), quindi funziona anche a cache vuota. Si cerca nei titoli e negli enti (con parole al singolare o plurale indifferenti; se nessun titolo le contiene tutte, ripiega su quelli che ne contengono almeno una), non nel testo completo degli atti (solo per quelli gia' letti con `leggi_atto`). La risposta dice quali date sono state caricate. Con `solo_vigenti=true` (predefinito) gli atti gia' abrogati sono esclusi (usando l'elenco degli abrogati di Normattiva). Senza `dal`, l'archivio Normattiva cerca nell'ultimo anno. Con `periodo="anno"` la cache locale della Serie Generale viene estesa all'indietro di 24 numeri per chiamata fino a un anno: ripeti la ricerca finche' la risposta dice che e' completa. Con `aggiorna=false` non si usa la rete e la ricerca copre solo cio' che e' gia' nella cache locale.
+
+## scadenze_concorsi(parole_chiave, regione, entro_giorni, limite)
+
+- "Quali concorsi per infermiere scadono questa settimana?"
+- "Ci sono bandi in Toscana che scadono nei prossimi 15 giorni?"
+
+Legge il testo di un numero limitato di bandi (al massimo 8 per richiesta; quelli già letti restano in cache, quindi una seconda richiesta va avanti) e ricava la scadenza dalla formula del bando ("entro il trentesimo giorno dalla pubblicazione", con slittamento dei festivi) o da una data scritta. Se il bando non indica la scadenza, lo dice e non la inventa. Considera solo i bandi degli ultimi 30 giorni. La data è sempre indicativa: controllala sul bando ufficiale.
+
+## testo_vigente(atto, offset)
+
+- "Cosa dice l'articolo 3 della legge 241 del 1990?"
+- "Dammi l'articolo 3-bis della legge 241/1990 come è oggi."
+
+Dà il testo di **un articolo** com'è oggi, con le modifiche già applicate (le parti aggiunte o cambiate sono tra doppie parentesi), da Normattiva Open Data (licenza CC BY 4.0, fonte da citare). Un articolo per volta: per l'atto intero usa il link di `rimando_normattiva`. Gli allegati e gli anni a due cifre ("241/90") non sono gestiti.
+
+## novita_argomento(argomento, serie, segna_come_letto, limite)
+
+- "Cosa è uscito sugli appalti dall'ultima volta che te l'ho chiesto?"
+- "Guarda le novità sul bonus edilizia, ma senza segnarle come già viste." (`segna_come_letto=false`)
+
+Il programma ricorda, solo sul tuo computer, fino a quale giorno ha già guardato per quell'argomento ("Appalti", "appalto" e "gli appalti" sono lo stesso). La prima volta mostra gli ultimi 7 giorni e lo dice. Cerca nei titoli e negli enti, non nel testo completo, e dice sempre da quando a quando ha cercato.
+
+## Richieste già pronte
+
+Nel menu del tuo assistente trovi cinque comandi: `riassumi_atto`, `confronta_decreti`, `concorsi_per_me`, `cosa_e_uscito`, `aggiornamenti_su`. Scegline uno e scrivi due parole; l'assistente usa da solo gli strumenti giusti.

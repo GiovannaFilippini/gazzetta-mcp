@@ -72,7 +72,7 @@ def test_implements_protocol(cache):
 
 def test_from_settings_and_memory(tmp_path):
     with SqliteCache.from_settings(Settings(cache_path=tmp_path / "a" / "c.db")) as c:
-        assert c.schema_version == 2
+        assert c.schema_version == 3
     assert (tmp_path / "a" / "c.db").exists()
     with SqliteCache(":memory:") as m:
         m.put_atto(make_atto())
@@ -299,7 +299,7 @@ def test_persists_across_reopen(tmp_path, clock):
     with SqliteCache(path, clock=clock) as c:
         c.put_atto(make_atto())
     with SqliteCache(path, clock=clock) as c:
-        assert c.schema_version == 2
+        assert c.schema_version == 3
         assert c.get_atto("25A00001") is not None
         assert len(hits(c, "decreto")) == 1
 
@@ -308,7 +308,7 @@ def test_migration_from_empty_db(tmp_path):
     path = tmp_path / "empty.db"
     sqlite3.connect(path).close()  # existing zero-byte database, user_version 0
     with SqliteCache(path) as c:
-        assert c.schema_version == 2
+        assert c.schema_version == 3
         assert c.stats()["atti"] == 0
 
 
@@ -322,10 +322,10 @@ def test_migration_applies_only_missing_steps(tmp_path, monkeypatch):
         mod, "_MIGRATIONS", [*mod._MIGRATIONS, "ALTER TABLE atti ADD COLUMN extra TEXT;"]
     )
     with SqliteCache(path) as c:
-        assert c.schema_version == 3
+        assert c.schema_version == 4
         assert c.get_atto("25A00001") is not None  # data survived the upgrade
     with SqliteCache(path) as c:  # re-opening does not re-run it
-        assert c.schema_version == 3
+        assert c.schema_version == 4
 
 
 def test_failed_migration_rolls_back(tmp_path, monkeypatch):
@@ -336,7 +336,7 @@ def test_failed_migration_rolls_back(tmp_path, monkeypatch):
     with pytest.raises(sqlite3.Error):
         SqliteCache(path)
     conn = sqlite3.connect(path)
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 2  # v2 kept, v3 rolled back
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 3  # v3 kept, v4 rolled back
     assert conn.execute("SELECT name FROM sqlite_master WHERE name = 't'").fetchone() is None
     conn.close()
 

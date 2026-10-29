@@ -45,7 +45,7 @@ Verifica eseguita il 2026-10-05 con richieste reali (poche, distanziate, user-ag
 - Collegamento permanente: `https://www.normattiva.it/uri-res/N2Ls?urn:nir:stato:<tipo>:<AAAA-MM-GG>;<numero>` (verificato: 200). Esempio: `urn:nir:stato:legge:2026-08-05;140`.
 - **Open data ufficiale:** `https://dati.normattiva.it` — dal 1 gennaio 2026 i dati degli atti (originario, vigente, multivigente) sono scaricabili con licenza **CC BY 4.0**, con download massivo e API. Documentazione API: `https://dati.normattiva.it/assets/come_fare_per/API_Normattiva_OpenData.pdf`. Linee guida ELI: `https://dati.normattiva.it/assets/come_fare_per/ELI_implementation_in_Italy.pdf`.
 
-**Decisione per la v1:** `rimando_normattiva` costruisce solo il link URN (nessun download). L'import massivo da `dati.normattiva.it` resta **fuori dalla v1** ed e' annotato come sviluppo possibile (vedi `docs/decisioni/005-normattiva-solo-link.md`).
+**Decisione per la v1:** `rimando_normattiva` costruisce solo il link URN (nessun download). Dopo la v1 questo e' cambiato in due punti, sempre senza download massivo: `cerca` interroga l'API open data per la ricerca nell'archivio (decisione 072) e `testo_vigente` legge **un articolo per volta** dall'API (decisione 110, con attribuzione CC BY 4.0). L'import massivo da `dati.normattiva.it` resta **fuori dalla v1** ed e' annotato come sviluppo possibile (vedi `docs/decisioni/005-normattiva-solo-link.md`).
 
 ## Campioni salvati
 

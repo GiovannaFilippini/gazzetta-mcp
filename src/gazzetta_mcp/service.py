@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 import re
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
@@ -34,6 +34,7 @@ from .sources.gu import (
     sommario_matches,
 )
 from .sources.normattiva import NormattivaLinkBuilder
+from .sources.ratelimit import RateLimiter
 from .sources.ricerca_gu import RicercaGuClient
 
 # Feeds that are already cached are used for date lookups whatever their age.
@@ -164,6 +165,7 @@ class GazzettaService:
         closers: tuple[Callable[[], Any], ...] = (),
         archivio: ArchiveSearch | None = None,
         ricerca_gu: ArchiveSearch | None = None,
+        normattiva_limiter: RateLimiter | None = None,
     ) -> None:
         self._client = client
         self._parser = parser
@@ -176,6 +178,10 @@ class GazzettaService:
         self._closers = closers
         self._archivio = archivio
         self._ricerca_gu = ricerca_gu
+        # One limiter for the whole Normattiva site, shared by every client that calls it.
+        self._normattiva_limiter = normattiva_limiter or RateLimiter(
+            self._settings.requests_per_second
+        )
         self._base = self._settings.gu_base_url.rstrip("/")
 
     async def aclose(self) -> None:
@@ -475,19 +481,21 @@ class GazzettaService:
                 f"({user_message(exc)}): uso solo i numeri gia' presenti nella cache locale."
             )
             cached = self._cached_issues(serie, today - timedelta(days=30), today)[:wanted]
-            return RecentIssues(serie, cached, 0, notes, today)
+            return RecentIssues(serie, cached, 0, notes, today, completo=False)
         if not raw.from_cache:
             requests += 1
         issues = self._parser.parse_elenco_30giorni(raw.content)[:wanted]
         if not issues:
             notes.append("L'elenco dei numeri degli ultimi 30 giorni risulta vuoto o illeggibile.")
         sommari: list[Sommario] = []
+        mancanti: list[date] = []
         failures = 0
         for d, numero in issues:
             som = self._cache.get_sommario(d, serie)
             if som is None:
                 if failures >= 3:  # the site is struggling: stop asking
                     notes.append(f"Numero {numero} del {d.isoformat()} non caricato.")
+                    mancanti.append(d)
                     continue
                 try:
                     page = await self._client.get_sommario(d, serie, numero)
@@ -496,16 +504,23 @@ class GazzettaService:
                     notes.append(
                         f"Numero {numero} del {d.isoformat()} non caricato ({user_message(exc)})."
                     )
+                    mancanti.append(d)
                     continue
                 if not page.from_cache:
                     requests += 1
                 som = self._parser.parse_sommario(page.content, serie, d, numero, self._base)
                 if not som.voci:
+                    # an empty page (maintenance, error served with status 200) must not stay
+                    # cached for 30 days: it is asked again next time
+                    self._cache.delete_http(self._client.url_sommario(d, serie, numero))
                     notes.append(f"Il numero {numero} del {d.isoformat()} risulta vuoto: saltato.")
+                    mancanti.append(d)
                     continue
                 self._cache.put_sommario(som)
             sommari.append(som)
-        return RecentIssues(serie, sommari, requests, notes, today)
+        return RecentIssues(
+            serie, sommari, requests, notes, today, mancanti=mancanti, completo=bool(issues)
+        )
 
     async def _extend_year(self, serie: Serie, max_issues: int | None = None) -> str:
         """Load one block of older issues, going back from the end of the recent cached run.
@@ -850,6 +865,8 @@ class GazzettaService:
                         "al": r.al.isoformat() if r.sommari else None,
                         "numeri": len(r.sommari),
                         "richieste_effettuate": r.richieste,
+                        "mancanti": [d.isoformat() for d in r.mancanti],
+                        "completo": r.completo,
                     }
                     for r in loaded
                 ],
@@ -870,6 +887,10 @@ class RecentIssues:
     richieste: int  # network requests made (cache hits are free)
     notes: list[str]
     today: date
+    # days of the issues that were expected but could not be loaded (error, empty page)
+    mancanti: list[date] = field(default_factory=list)
+    # False when the index of recent issues could not be read: the coverage is unknown
+    completo: bool = True
 
     @property
     def dal(self) -> date:
@@ -928,13 +949,19 @@ def build_service(settings: Settings | None = None) -> GazzettaService:
             )
         except ValueError:
             pass
-    archivio = ArchivioClient(settings, cache=cache) if settings.archivio_normattiva else None
+    normattiva_limiter = RateLimiter(settings.requests_per_second)
+    archivio = (
+        ArchivioClient(settings, cache=cache, limiter=normattiva_limiter)
+        if settings.archivio_normattiva
+        else None
+    )
     ricerca_gu = RicercaGuClient(settings, cache=cache) if settings.ricerca_gu else None
     closers = (client.aclose, cache.close)
     closers += tuple(c.aclose for c in (archivio, ricerca_gu) if c is not None)
     return GazzettaService(
         archivio=archivio,
         ricerca_gu=ricerca_gu,
+        normattiva_limiter=normattiva_limiter,
         client=client,
         parser=GuParser(),
         cache=cache,

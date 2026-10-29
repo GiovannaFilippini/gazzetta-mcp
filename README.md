@@ -60,9 +60,29 @@ respectful of the source. See [docs/fonti.md](docs/fonti.md).
 | `cerca_concorsi` | `parole_chiave`, `regione`, `aperti`, `includi_altri_atti`, `limite` | Search public competitions from a cold start: loads the last ~30 days of the 4th series (a handful of rate-limited requests, then cached), states the coverage |
 | `rimando_normattiva` | `atto` | Builds the permanent Normattiva link for an act (link only, no download) |
 | `cerca` | `testo`, `serie`, `tipo`, `dal`, `al`, `limite`, `aggiorna`, `solo_vigenti`, `periodo` | Search titles and issuing bodies of recent issues (SG about 30 days, S4 last 9: refreshed first, bounded), of everything already cached and, for laws and decrees of any year, of the Normattiva Open Data archive (results marked `origine: normattiva`); repealed acts are left out by default; full act texts only if already read |
+| `scadenze_concorsi` | `parole_chiave`, `regione`, `entro_giorni`, `limite` | Competitions about to expire (default: next 7 days). Reads the text of a limited number of calls (at most 8 per request, then cached) and works out the deadline from the call's own formula or from a written date; if the call gives none it says so. Always indicative: check the official call |
+| `testo_vigente` | `atto`, `offset` | Text of **one article** of a law as it stands today, amendments included (unlike `leggi_atto`, which gives the originally published text). One article at a time, from Normattiva Open Data (CC BY 4.0); for the whole act use the link from `rimando_normattiva` |
+| `novita_argomento` | `argomento`, `serie`, `segna_come_letto`, `limite` | What came out on a topic since you last asked. The last check is remembered only on your computer; the first time it shows the last 7 days. Searches titles and issuing bodies, not full texts; the words you ask about are also sent to Normattiva for the archive search (switch it off with `GAZZETTA_MCP_ARCHIVIO_NORMATTIVA=0`) |
+
+> `scadenze_concorsi`, `testo_vigente`, `novita_argomento` and the ready-made prompts are in the development version and will arrive with the next release: the 0.1.0 package and the `.mcpb` bundle do not include them yet.
 
 Series codes: `SG` Serie Generale, `S1` Corte Costituzionale, `S2` Unione Europea, `S3` Regioni,
 `S4` Concorsi ed esami, `S5` Contratti pubblici, `P2` Parte II.
+
+### Ready-made prompts
+
+Five prompts your assistant can show as commands in a menu; pick one and type a few words.
+
+| Prompt | What it asks the assistant to do |
+|---|---|
+| `riassumi_atto` | Explain an act in 3-5 points, without jargon |
+| `confronta_decreti` | What changes and what stays the same between two acts |
+| `concorsi_per_me` | Open competitions that fit your profile, with deadline |
+| `cosa_e_uscito` | What came out today, this week or in a period you name |
+| `aggiornamenti_su` | What is new on a topic since the last time |
+
+They never ask you for codes or dates, they cite the official link and they remind you that the
+text is unofficial; for legal questions you still need a professional.
 
 ## Install
 
@@ -157,7 +177,8 @@ the cache folder and the connection (one request) and tells you what to fix.
 - **Where is the cache?** In `<cache dir>/gazzetta-mcp/cache.sqlite3` (see `GAZZETTA_MCP_CACHE_PATH`
   above; on Windows `%LOCALAPPDATA%\gazzetta-mcp`).
 - **Clear the cache**: close the assistant, then run `gazzetta-mcp --svuota-cache --si`
-  (without `--si` it only shows what would be deleted).
+  (without `--si` it only shows what would be deleted). It also forgets what `novita_argomento`
+  had already shown you: the next check of each topic starts again from the last 7 days.
 
 ## Development
 
@@ -243,9 +264,29 @@ e di dichiarare il carattere non autentico e gratuito dei testi. Vedi [docs/font
 | `cerca_concorsi` | `parole_chiave`, `regione`, `aperti`, `includi_altri_atti`, `limite` | Cerca bandi (4a serie) anche a cache vuota: carica gli ultimi 30 giorni (poche richieste distanziate, poi in cache) e dichiara la copertura |
 | `rimando_normattiva` | `atto` | Costruisce il link permanente a Normattiva (solo link) |
 | `cerca` | `testo`, `serie`, `tipo`, `dal`, `al`, `limite`, `aggiorna`, `solo_vigenti`, `periodo` | Ricerca nei titoli e negli enti dei numeri recenti (SG circa 30 giorni, S4 ultimi 9: aggiornati prima, con tetto), in ciò che è in cache e, per leggi e decreti di qualsiasi anno, nell'archivio Open Data di Normattiva (origine `normattiva`); gli atti abrogati sono esclusi di default; il testo completo solo per gli atti già letti |
+| `scadenze_concorsi` | `parole_chiave`, `regione`, `entro_giorni`, `limite` | Quali concorsi stanno per scadere (di default nei prossimi 7 giorni). Legge il testo di un numero limitato di bandi (al massimo 8 per richiesta, poi in cache) e ricava la data dalla formula del bando o da una data scritta; se il bando non la indica, lo dice senza inventarla. La data è sempre indicativa: va verificata sul bando ufficiale |
+| `testo_vigente` | `atto`, `offset` | Testo di **un articolo** di legge com'è oggi, con le modifiche già applicate (a differenza di `leggi_atto`, che dà il testo originale). Un articolo per volta, da Normattiva Open Data (CC BY 4.0); per l'atto intero resta il link di `rimando_normattiva` |
+| `novita_argomento` | `argomento`, `serie`, `segna_come_letto`, `limite` | Cosa è uscito su un argomento dall'ultima volta che lo hai chiesto. Il programma ricorda l'ultimo controllo solo sul tuo computer; la prima volta mostra gli ultimi 7 giorni. Cerca nei titoli e negli enti, non nel testo completo; le parole che chiedi vengono inviate anche a Normattiva per la ricerca nell'archivio (si disattiva con `GAZZETTA_MCP_ARCHIVIO_NORMATTIVA=0`) |
 
 Sigle delle serie: `SG` Serie Generale, `S1` Corte Costituzionale, `S2` Unione Europea,
 `S3` Regioni, `S4` Concorsi ed esami, `S5` Contratti pubblici, `P2` Parte II.
+
+> `scadenze_concorsi`, `testo_vigente`, `novita_argomento` e le richieste già pronte sono nella versione di sviluppo e arriveranno con la prossima versione: il pacchetto 0.1.0 e il file `.mcpb` non le contengono ancora.
+
+### Richieste già pronte
+
+Cinque comandi che il tuo assistente mostra in un menu: scegline uno e scrivi due parole.
+
+| Comando | Cosa chiede all'assistente |
+|---|---|
+| `riassumi_atto` | Spiega un atto in 3-5 punti, senza gergo |
+| `confronta_decreti` | Cosa cambia e cosa resta uguale tra due atti |
+| `concorsi_per_me` | Bandi aperti adatti al tuo profilo, con scadenza |
+| `cosa_e_uscito` | Novità di oggi, della settimana o del periodo che indichi |
+| `aggiornamenti_su` | Cosa c'è di nuovo su un argomento dall'ultima volta |
+
+Non ti chiedono mai codici o date, riportano il link ufficiale e ricordano che il testo non è
+ufficiale; per questioni legali serve comunque un professionista.
 
 Esempi di richieste in linguaggio naturale: [docs/uso.md](docs/uso.md).
 
@@ -296,7 +337,8 @@ locale, la cartella della cache e il collegamento (una sola richiesta) e dice co
 - **Dove sta la cache**: in `<cartella cache>/gazzetta-mcp/cache.sqlite3` (su Windows
   `%LOCALAPPDATA%\gazzetta-mcp`), modificabile con `GAZZETTA_MCP_CACHE_PATH`.
 - **Svuotare la cache**: chiudi l'assistente e lancia `gazzetta-mcp --svuota-cache --si` (senza
-  `--si` mostra soltanto cosa verrebbe cancellato).
+  `--si` mostra soltanto cosa verrebbe cancellato). Si dimentica anche cosa ti aveva già mostrato
+  `novita_argomento`: il prossimo controllo di ogni argomento riparte dagli ultimi 7 giorni.
 
 ### Sviluppo
 

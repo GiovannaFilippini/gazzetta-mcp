@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import re
 import sqlite3
 import threading
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
 from types import TracebackType
@@ -115,6 +117,18 @@ _MIGRATIONS: list[str] = [
     UPDATE docs_fts SET testo = ''
     WHERE rowid IN (SELECT id FROM docs WHERE kind = 'voce');
     """,
+    # v3: what novita_argomento remembers per topic (decision 120). Only this table is new:
+    # to undo, DROP TABLE novita_controlli and set PRAGMA user_version = 2.
+    """
+    CREATE TABLE novita_controlli (
+        chiave TEXT PRIMARY KEY,     -- normalised topic + series, see novita.chiave_argomento
+        argomento TEXT NOT NULL,     -- the words as the user wrote them last time
+        serie TEXT NOT NULL,         -- '' = no series filter
+        coperto_fino TEXT NOT NULL,  -- last publication day really covered (ISO date)
+        codici TEXT NOT NULL,        -- JSON list: codes of that day already shown
+        controllato_il REAL NOT NULL -- when the user last asked (epoch seconds)
+    );
+    """,
 ]
 
 _WORD = re.compile(r"\w+", re.UNICODE)
@@ -151,6 +165,18 @@ def _now_utc() -> datetime:
 
 def _opt_dt(value: str | None) -> datetime | None:
     return datetime.fromisoformat(value) if value else None
+
+
+@dataclass(frozen=True)
+class Controllo:
+    """What was last covered for a topic (one row of ``novita_controlli``)."""
+
+    chiave: str
+    argomento: str
+    serie: str
+    coperto_fino: date
+    codici: frozenset[str]  # codes of the ``coperto_fino`` day already shown to the user
+    controllato_il: datetime
 
 
 class SqliteCache:
@@ -260,6 +286,11 @@ class SqliteCache:
                 "VALUES (?, ?, ?, ?)",
                 (page.url, page.content, page.content_type, _ts(page.fetched_at)),
             )
+
+    def delete_http(self, url: str) -> None:
+        """Forget one cached page (for example a page that turned out to be empty)."""
+        with self._lock, self._conn:
+            self._conn.execute("DELETE FROM http_pages WHERE url = ?", (url,))
 
     # -- feeds -----------------------------------------------------------------------------
 
@@ -541,6 +572,43 @@ class SqliteCache:
             )
             for r in rows
         ]
+
+    # -- novita_argomento ------------------------------------------------------------------
+
+    def get_controllo(self, chiave: str) -> Controllo | None:
+        with self._lock:
+            r = self._conn.execute(
+                "SELECT * FROM novita_controlli WHERE chiave = ?", (chiave,)
+            ).fetchone()
+        if r is None:
+            return None
+        return Controllo(
+            chiave=r["chiave"],
+            argomento=r["argomento"],
+            serie=r["serie"],
+            coperto_fino=date.fromisoformat(r["coperto_fino"]),
+            codici=frozenset(json.loads(r["codici"])),
+            controllato_il=datetime.fromtimestamp(r["controllato_il"], timezone.utc),
+        )
+
+    def put_controllo(self, controllo: Controllo) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO novita_controlli (chiave, argomento, serie, "
+                "coperto_fino, codici, controllato_il) VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    controllo.chiave,
+                    controllo.argomento,
+                    controllo.serie,
+                    controllo.coperto_fino.isoformat(),
+                    json.dumps(sorted(controllo.codici)),
+                    _ts(controllo.controllato_il),
+                ),
+            )
+
+    def delete_controllo(self, chiave: str) -> None:
+        with self._lock, self._conn:
+            self._conn.execute("DELETE FROM novita_controlli WHERE chiave = ?", (chiave,))
 
     # -- maintenance -----------------------------------------------------------------------
 

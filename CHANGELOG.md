@@ -11,11 +11,25 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - One-click install for Claude Desktop: the `mcpb/` folder builds a `.mcpb` Desktop Extension that
   installs the published `gazzetta-mcp` package from PyPI.
+- `scadenze_concorsi`: competitions about to expire, with the deadline worked out from the call's
+  own formula or written date (decision 100). Never invents a date; always indicative.
+- `testo_vigente`: text of one article of a law as it stands today, from Normattiva Open Data
+  (CC BY 4.0, decision 110). One article at a time.
+- `novita_argomento`: what came out on a topic since the last check, remembered locally
+  (decision 120).
+- Five ready-made MCP prompts: `riassumi_atto`, `confronta_decreti`, `concorsi_per_me`,
+  `cosa_e_uscito`, `aggiornamenti_su` (decision 130).
 - README: PyPI downloads badge and an animated demo.
 - README: "Sources and attribution" section, including the CC BY 4.0 credit for Normattiva Open
   Data results.
 
 ### Changed
+
+- One shared rate limiter for all requests to Normattiva (archive search and `testo_vigente`):
+  together they now stay at the configured rate instead of twice that.
+- The local cache schema is now version 3 (new table with the last check per topic). An older
+  gazzetta-mcp refuses to open a cache created by this version: clear it with
+  `gazzetta-mcp --svuota-cache --si`, or see decision 120 to go back by hand.
 
 - README: the English text now matches the Italian one and the code (`cerca` with the Normattiva
   archive, `solo_vigenti` and `periodo`; the archive and advanced-search environment variables).
