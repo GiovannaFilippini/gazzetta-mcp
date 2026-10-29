@@ -102,6 +102,8 @@ pip install gazzetta-mcp
 Download `gazzetta-mcp-0.1.0.mcpb` from the
 [latest release](https://github.com/GiovannaFilippini/gazzetta-mcp/releases/latest) and
 double-click it (or open it from Claude Desktop, Settings > Extensions). No terminal needed.
+If double-clicking does nothing (Windows does not always link `.mcpb` files to Claude Desktop),
+open Claude Desktop, go to Settings > Extensions and drag the file onto that page.
 The bundle is built from [mcpb](mcpb) and installs the same `gazzetta-mcp` package from PyPI.
 
 ### Development version (from GitHub)
@@ -305,7 +307,9 @@ pip install gazzetta-mcp
 
 **Installazione con un clic (Claude Desktop):** scarica `gazzetta-mcp-0.1.0.mcpb` dall'[ultima
 release](https://github.com/GiovannaFilippini/gazzetta-mcp/releases/latest) e aprilo con doppio
-clic (oppure da Claude Desktop, Impostazioni > Estensioni). Non serve il terminale. Il pacchetto
+clic (oppure da Claude Desktop, Impostazioni > Estensioni). Non serve il terminale. Se il doppio
+clic non fa niente (Windows non sempre collega i file `.mcpb` a Claude Desktop), apri Claude Desktop,
+vai su Impostazioni > Estensioni e trascina il file su quella pagina. Il pacchetto
 è costruito da [mcpb](mcpb) e installa lo stesso pacchetto `gazzetta-mcp` di PyPI.
 
 **Versione di sviluppo** (da GitHub):
