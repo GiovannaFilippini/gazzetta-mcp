@@ -281,7 +281,7 @@ def archivio(tmp_path, monkeypatch):
 
 
 def test_cli_rimuovi_without_si_only_previews(archivio, capsys):
-    assert main(["rimuovi", "26A00001", "--motivo", "prova"]) == 0
+    assert main(["rimuovi", "26A00001", "--motivo", "altro"]) == 0
     out = capsys.readouterr().out
     assert "26A00001" in out and "2026-01-05" in out and "Decreto zanzibar" in out
     assert "--si" in out
@@ -290,7 +290,9 @@ def test_cli_rimuovi_without_si_only_previews(archivio, capsys):
 
 
 def test_cli_rimuovi_si_deletes_and_rimossi_lists(archivio, capsys):
-    assert main(["rimuovi", "26A00001", "26A00077", "--motivo", "richiesta", "--si"]) == 0
+    assert (
+        main(["rimuovi", "26A00001", "26A00077", "--motivo", "richiesta-interessato", "--si"]) == 0
+    )
     capsys.readouterr()
     with ArchiveStore(archivio) as s:
         assert not s.has_atto("26A00001") and s.has_atto("26A00002")
@@ -310,7 +312,7 @@ def test_cli_rimuovi_requires_a_reason(archivio):
 def test_cli_stato_counts_removed_and_rimossi_needs_no_archive(
     archivio, tmp_path, monkeypatch, capsys
 ):
-    main(["rimuovi", "26A00001", "--motivo", "x", "--si"])
+    main(["rimuovi", "26A00001", "--motivo", "errore", "--si"])
     capsys.readouterr()
     assert main(["stato"]) == 0
     import json
@@ -319,4 +321,47 @@ def test_cli_stato_counts_removed_and_rimossi_needs_no_archive(
     assert out["atti"] == 1 and out["atti_rimossi"] == 1
     monkeypatch.setenv("GAZZETTA_MCP_ARCHIVIO_PATH", str(tmp_path / "manca" / "a.sqlite3"))
     assert main(["rimossi"]) == 0
+    assert not (tmp_path / "manca").exists()
+
+
+def test_a_reason_with_an_email_or_too_long_is_refused():
+    import pytest
+
+    from gazzetta_mcp.archivio import ArchiveStore
+
+    with ArchiveStore(":memory:") as store:
+        with pytest.raises(ValueError):
+            store.rimuovi_atto("26A00001", "chiesto da mario@example.it")
+        with pytest.raises(ValueError):
+            store.rimuovi_atto("26A00001", "x" * 200)
+
+
+def test_compatta_says_so_when_a_reader_keeps_the_old_data_in_the_file(tmp_path, monkeypatch):
+    import sqlite3
+
+    import pytest
+
+    from gazzetta_mcp.archivio import ArchiveError, ArchiveStore
+    from gazzetta_mcp.archivio import store as store_module
+
+    monkeypatch.setattr(store_module.time, "sleep", lambda s: None)
+    path = tmp_path / "a.sqlite3"
+    with ArchiveStore(path) as store:
+        store.put_atto(_atto("26A00001"), fonte="gu")
+        reader = sqlite3.connect(path)
+        reader.execute("BEGIN")
+        reader.execute("SELECT COUNT(*) FROM atti").fetchone()  # open read transaction
+        store.set_stato("x", "y")  # something new in the WAL beyond the reader's snapshot
+        store._conn.execute("PRAGMA busy_timeout = 0")  # do not wait 5 s per attempt
+        with pytest.raises(ArchiveError, match="Ferma il servizio"):
+            store.compatta()
+        reader.close()
+        store.compatta()  # without the reader it works
+
+
+def test_rimuovi_refuses_invalid_codes_and_a_missing_archive(tmp_path, monkeypatch, capsys):
+    from gazzetta_mcp.archivio.__main__ import main
+
+    monkeypatch.setenv("GAZZETTA_MCP_ARCHIVIO_PATH", str(tmp_path / "manca" / "a.sqlite3"))
+    assert main(["rimuovi", "26A00001", "--motivo", "altro", "--si"]) == 1
     assert not (tmp_path / "manca").exists()

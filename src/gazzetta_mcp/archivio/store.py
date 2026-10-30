@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import sqlite3
 import threading
+import time
 from collections.abc import Iterable, Sequence
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -17,6 +18,8 @@ from ..cache.sqlite import build_match_query
 from ..models import Atto, SearchFilters, SearchHit, Serie
 from .tipi import ARCHI_TIPI, FONTI, Arco, NumeroDaFare
 
+MOTIVI_RIMOZIONE = ("richiesta-interessato", "errore", "altro")  # what the command line allows
+MAX_MOTIVO = 40
 MAX_TESTO_SNIPPET = 300_000  # characters: longer texts get no highlighted excerpt
 MAX_PAROLE_RICERCA = 12  # words of a search used; the rest is ignored
 STATI_NUMERO = ("da_fare", "fatto", "errore", "vuoto")  # "vuoto": issue exists but has no acts
@@ -226,6 +229,12 @@ class ArchiveStore:
         archived, so it is never acquired later. Returns True if an archived act was deleted.
         Call ``compatta`` afterwards to drop the deleted data from the file.
         """
+        motivo = motivo.strip()
+        if len(motivo) > MAX_MOTIVO or "@" in motivo:
+            raise ValueError(
+                f"The reason must be short ({MAX_MOTIVO} characters) and must not contain an "
+                "email address: do not write who asked."
+            )
         with self._lock:
             # Overwrite freed pages with zeros (a per-connection setting, not allowed inside
             # a transaction).
@@ -266,9 +275,24 @@ class ArchiveStore:
             self._conn.execute("INSERT INTO atti_fts (atti_fts) VALUES ('optimize')")
             self._conn.commit()
             self._conn.execute("PRAGMA secure_delete = ON")
-            self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            self._checkpoint_completo()
             self._conn.execute("VACUUM")
-            self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            self._checkpoint_completo()
+
+    def _checkpoint_completo(self, tentativi: int = 5, pausa: float = 1.0) -> None:
+        """Checkpoint the whole WAL into the main file. A reader with an open transaction makes
+        SQLite answer ``busy`` without raising: then the deleted text may still be in the file,
+        so wait a little and, if it does not work, say so instead of claiming success."""
+        for n in range(tentativi):
+            busy = self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()[0]
+            if not busy:
+                return
+            if n < tentativi - 1:
+                time.sleep(pausa)
+        raise ArchiveError(
+            "Impossibile pulire il file: un altro processo sta leggendo l'archivio. "
+            "Ferma il servizio web e riprova."
+        )
 
     def ha_testo_completo(self, codice: str) -> bool:
         """True if the act is archived with its full text (False: absent or partial)."""
