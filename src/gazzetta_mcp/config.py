@@ -24,6 +24,22 @@ def _flag(raw: str | None, default: bool) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "si", "on"}
 
 
+def _url_remota(raw: str | None) -> str:
+    """The remote archive URL, or "" (feature off) when unset or not allowed."""
+    from .archivio.cliente_remoto import url_ammesso
+
+    url = (raw or "").strip()
+    return url if url and url_ammesso(url) else ""
+
+
+def _secondi(raw: str | None, default: float) -> float:
+    try:
+        value = float(raw) if raw and raw.strip() else default
+    except ValueError:
+        return default
+    return value if 0 < value <= 60 else default
+
+
 @dataclass(frozen=True)
 class Settings:
     gu_base_url: str = "https://www.gazzettaufficiale.it"
@@ -45,6 +61,10 @@ class Settings:
     archivio_path: Path = field(
         default_factory=lambda: _default_cache_path().with_name("archivio.sqlite3")
     )
+    # Remote archive service (decision 090): empty means off. Only https:// is accepted (plain
+    # http only towards localhost); anything else is ignored.
+    archivio_remoto_url: str = ""
+    archivio_remoto_timeout: float = 8.0
     user_agent: str = f"gazzetta-mcp/{__version__} (unofficial open source client)"
 
     @classmethod
@@ -72,5 +92,9 @@ class Settings:
             cache_path=Path(env("GAZZETTA_MCP_CACHE_PATH", str(d.cache_path))),
             archivio_path=Path(env("GAZZETTA_MCP_ARCHIVIO_PATH", str(d.archivio_path))),
             cache_ttl_feed_seconds=int(env("GAZZETTA_MCP_FEED_TTL", d.cache_ttl_feed_seconds)),
+            archivio_remoto_url=_url_remota(env("GAZZETTA_MCP_ARCHIVIO_URL")),
+            archivio_remoto_timeout=_secondi(
+                env("GAZZETTA_MCP_ARCHIVIO_REMOTO_TIMEOUT"), d.archivio_remoto_timeout
+            ),
             user_agent=env("GAZZETTA_MCP_USER_AGENT", d.user_agent),
         )

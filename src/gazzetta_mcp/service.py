@@ -16,6 +16,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from .archivio import ArchiveError, ArchiveStore
+from .archivio.cliente_remoto import ClienteRemoto
 from .cache.sqlite import CacheError, SqliteCache
 from .concorsi import BANDI, classify, estrai_posti, keyword_matcher
 from .config import Settings
@@ -41,6 +42,10 @@ from .sources.ricerca_gu import RicercaGuClient
 
 # Feeds that are already cached are used for date lookups whatever their age.
 _ANY_AGE = 10**9
+_NOTA_REMOTO = (
+    "Dati dall'archivio centrale remoto (copia non ufficiale). " + DISCLAIMER + " Dati di "
+    "Normattiva: licenza CC BY 4.0, dati.normattiva.it."
+)
 _CODICE = re.compile(r"^[0-9A-Z]{6,14}$")
 # Editorial code letter -> series, only where the letter is unambiguous (docs/fonti.md).
 _LETTER_TO_SERIE = {"A": Serie.SG, "G": Serie.SG, "E": Serie.S4}
@@ -169,6 +174,7 @@ class GazzettaService:
         ricerca_gu: ArchiveSearch | None = None,
         normattiva_limiter: RateLimiter | None = None,
         archivio_store: ArchiveStore | None = None,
+        archivio_remoto: ClienteRemoto | None = None,
     ) -> None:
         self._client = client
         self._parser = parser
@@ -183,6 +189,8 @@ class GazzettaService:
         self._ricerca_gu = ricerca_gu
         # Central archive on this device (step 2): read after the cache, before the sources.
         self._archivio_store = archivio_store
+        # Remote archive service: read after the local archive, before the sources.
+        self._archivio_remoto = archivio_remoto
         # One limiter for the whole Normattiva site, shared by every client that calls it.
         self._normattiva_limiter = normattiva_limiter or RateLimiter(
             self._settings.requests_per_second
@@ -367,6 +375,13 @@ class GazzettaService:
                 self._cache.put_atto(archived)
                 atto = archived
         from_cache = atto is not None and bool(atto.testo)
+        nota_origine = ""
+        if (atto is None or not atto.testo) and self._archivio_remoto is not None:
+            remoto = await self._archivio_remoto.leggi_atto(codice)  # full text or None
+            if remoto is not None:
+                atto = replace(remoto, scaricato_il=self._now())
+                self._cache.put_atto(atto)
+                nota_origine = _NOTA_REMOTO
         if atto is None or not atto.testo:
             s, d, guessed = self._locate(codice, s_arg, d_arg)
             if d is None:
@@ -382,7 +397,7 @@ class GazzettaService:
                     "indicalo nel parametro 'data' (AAAA-MM-GG)."
                 )
             atto = await self._fetch_atto(codice, d, s, guessed)
-        return self._atto_result(atto, offset, from_cache)
+        return self._atto_result(atto, offset, from_cache, nota_origine)
 
     def _archived_atto(self, codice: str) -> Atto | None:
         """The act from the central archive, only with its full text. Any archive problem
@@ -396,6 +411,11 @@ class GazzettaService:
             return store.get_atto(codice)
         except (sqlite3.Error, ValueError):
             return None
+
+    async def _remote_hits(self, testo: str, filtri: SearchFilters) -> list[SearchHit]:
+        if self._archivio_remoto is None:
+            return []
+        return await self._archivio_remoto.cerca(testo, filtri)
 
     def _archive_hits(self, testo: str, filtri: SearchFilters) -> list[SearchHit]:
         if self._archivio_store is None:
@@ -428,7 +448,9 @@ class GazzettaService:
             self._cache.put_atto(atto)
         return atto
 
-    def _atto_result(self, atto: Atto, offset: int, from_cache: bool) -> dict[str, Any]:
+    def _atto_result(
+        self, atto: Atto, offset: int, from_cache: bool, nota_origine: str = ""
+    ) -> dict[str, Any]:
         total = len(atto.testo)
         if offset > total:
             raise ServiceError(
@@ -444,7 +466,7 @@ class GazzettaService:
                 f"Per continuare richiama leggi_atto con offset={end}. ...]"
             )
         nota = (
-            ""
+            nota_origine
             if atto.testo
             else (
                 "Il testo non e' disponibile in forma elettronica qui: apri il link ufficiale "
@@ -839,6 +861,7 @@ class GazzettaService:
         if (
             stats is not None
             and self._archivio_store is None
+            and self._archivio_remoto is None
             and stats().get("search_entries", 1) == 0
         ):
             return self._result(
@@ -863,6 +886,11 @@ class GazzettaService:
                 "Alcuni risultati vengono dall'archivio su questo dispositivo (Gazzetta Ufficiale "
                 "e Normattiva Open Data, licenza CC BY 4.0, dati.normattiva.it)."
             )
+        seen |= {h.codice for h in extra}
+        remote = [h for h in await self._remote_hits(testo, filtri) if h.codice not in seen]
+        if remote:
+            hits = sorted(hits + remote, key=lambda h: -h.punteggio)[: filtri.limite]
+            note.append(_NOTA_REMOTO)
         fonti_archivio: list[str] = []
         if aggiorna:
             hits, fonti_archivio = await self._search_archives(testo, filtri, s, hits, note)
@@ -1005,7 +1033,18 @@ def build_service(settings: Settings | None = None) -> GazzettaService:
             archivio_store = ArchiveStore(settings.archivio_path)
         except (ArchiveError, OSError):
             archivio_store = None  # an unreadable archive must not stop the local server
+    archivio_remoto = (
+        ClienteRemoto(
+            settings.archivio_remoto_url,
+            timeout=settings.archivio_remoto_timeout,
+            user_agent=settings.user_agent,
+        )
+        if settings.archivio_remoto_url
+        else None
+    )
     closers = (client.aclose, cache.close)
+    if archivio_remoto is not None:
+        closers += (archivio_remoto.aclose,)
     if archivio_store is not None:
         closers += (archivio_store.close,)
     closers += tuple(c.aclose for c in (archivio, ricerca_gu) if c is not None)
@@ -1014,6 +1053,7 @@ def build_service(settings: Settings | None = None) -> GazzettaService:
         ricerca_gu=ricerca_gu,
         normattiva_limiter=normattiva_limiter,
         archivio_store=archivio_store,
+        archivio_remoto=archivio_remoto,
         client=client,
         parser=GuParser(),
         cache=cache,
