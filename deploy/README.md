@@ -396,6 +396,11 @@ chiedere un atto di una serie esclusa da' lo stesso errore di un codice inesiste
 nasce dalla valutazione sui dati personali (`docs/privacy/valutazione-gdpr.md`). Per servire piu'
 serie scrivi un elenco, per esempio `--serie SG,S1`; senza l'opzione le serie sono tutte.
 
+### `--riempi`: recuperare al volo un atto mancante (spento di default)
+
+Con `--riempi` (da aggiungere alla riga `ExecStart`, insieme a `--serie`, che diventa obbligatoria) un atto chiesto con `leggi_atto_archivio` e non ancora archiviato viene preso dalla Gazzetta Ufficiale, archiviato e restituito. E' spento di default perche' e' l'unico caso in cui il servizio pubblico scrive: usa una seconda connessione, mentre le letture restano in sola lettura. Limiti: 1 richiesta al secondo verso la fonte, un atto alla volta (coda di 20, poi "riprova tra poco"), 5 atti nuovi all'ora per IP e 60 in tutto (`--riempi-ip-ora`, `--riempi-ora`, `--riempi-coda`), pausa automatica dopo errori ripetuti della fonte.
+Rischi: l'utente del servizio deve poter scrivere il file dell'archivio (il kit gia' lo consente nella cartella dati); chiunque puo' far crescere l'archivio e far lavorare la fonte, entro quei tetti; e' proprio lo scenario di cui tenere conto nella valutazione sui dati personali (`docs/privacy/valutazione-gdpr.md`). Non accenderlo senza aver letto quel documento.
+
 ---
 
 ## Passo 12. Primo riempimento e avvio
