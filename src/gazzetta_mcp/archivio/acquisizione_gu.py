@@ -6,8 +6,10 @@ stopped and started again: acts already archived are never downloaded twice.
 
 Series without a known act text URL (``ATTO_URL_SEGMENT`` is None: S2, S5, P2) are archived from
 the issue summary alone: title, issuer, kind and link, with an empty text. The text is never
-invented, and since an archived act is immutable it cannot be added later without a new store
-method.
+invented: they are archived as partial (``completo=False``) so that they stay correctable.
+
+Reaching further back than the last 30 days: ``accoda_indietro`` walks back from the oldest known
+issue, one publication day at a time, with the numbers deduced and verified (see its docstring).
 """
 
 from __future__ import annotations
@@ -16,12 +18,13 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from ..interfaces import Parser, SourceClient
 from ..models import ATTO_URL_SEGMENT, Atto, Serie, SommarioVoce
 from ..parsing import ParseError
-from ..sources.gu import GuError, GuHttpError, resolve_numero, sommario_matches
+from ..sources.gu import GuError, GuHttpError, GuNotFoundError, resolve_numero, sommario_matches
+from .grafo import salva_archi_atti
 from .store import ArchiveStore
 from .tipi import NumeroDaFare
 
@@ -30,6 +33,14 @@ log = logging.getLogger(__name__)
 BASE_URL = "https://www.gazzettaufficiale.it"
 BACKOFF_BASE_SECONDS = 30.0
 BACKOFF_CAP_SECONDS = 15 * 60.0
+
+# Days of the week (Monday = 0) on which a series is published, when the weekly pattern is known.
+# The issue number is progressive within the year; a day with no issue (holiday) has no number.
+GIORNI_PUBBLICAZIONE: dict[Serie, frozenset[int]] = {
+    Serie.SG: frozenset(range(6)),  # Monday to Saturday
+    Serie.S4: frozenset({1, 4}),  # Tuesday and Friday
+}
+MAX_SALTI_CONSECUTIVI = 3  # unexpected days without issue in a row before giving up
 
 Sleep = Callable[[float], Awaitable[None]]
 
@@ -57,20 +68,27 @@ async def acquisisci_numero(
     voce: NumeroDaFare,
     *,
     base_url: str = BASE_URL,
+    conta_tentativo: bool = True,
 ) -> int:
     """Archive the acts of one issue. Returns how many acts were new.
 
     Costs one request for the summary plus about three per act that is not archived yet.
     The issue is marked 'fatto' (or 'vuoto' if it has no acts); 'errore' with the message when
     the number is wrong, a page cannot be read or an act has no text. An act that fails does not
-    stop the others. A network or HTTP problem (``GuHttpError``) is different: it says nothing
-    about the issue, so the issue goes back to 'da_fare' (the attempt is not counted, the message
-    is kept) and the error is raised for the caller to back off. Acts saved so far stay saved.
+    stop the others. A network or HTTP problem (``GuHttpError``) is raised for the caller to
+    back off, and the issue is marked 'errore' with the message: the attempt is counted, so an
+    issue that keeps failing is dropped after ``max_tentativi`` instead of blocking the queue
+    for good. With ``conta_tentativo=False`` (a retry inside one run) the issue goes back to
+    'da_fare' without counting. Acts saved so far stay saved.
+
+    An act archived with a partial or empty text (from Normattiva, or from the summary alone)
+    is downloaded and replaced; an act with a full text is never downloaded again.
     """
     try:
         return await _acquisisci(client, parser, store, voce, base_url)
     except GuHttpError as exc:
-        store.segna_numero(voce.serie, voce.data, "da_fare", str(exc))
+        stato = "errore" if conta_tentativo else "da_fare"
+        store.segna_numero(voce.serie, voce.data, stato, str(exc))
         raise
 
 
@@ -107,8 +125,9 @@ async def _acquisisci(
 
     nuovi = 0
     problemi: list[str] = []
+    senza_url = ATTO_URL_SEGMENT.get(serie) is None
     for v in sommario.voci:
-        if store.has_atto(v.codice):
+        if store.has_atto(v.codice) if senza_url else store.ha_testo_completo(v.codice):
             continue
         try:
             atto = await _scarica_atto(client, parser, v, serie, giorno, numero, base_url)
@@ -120,7 +139,14 @@ async def _acquisisci(
         if atto is None:
             problemi.append(f"{v.codice}: empty text")
             continue
-        nuovi += store.put_atto(atto, fonte="gu")
+        completo = not senza_url
+        if store.has_atto(v.codice):  # archived with a partial text: the GU copy completes it
+            salvato = store.sostituisci_atto(atto, fonte="gu", completo=completo)
+        else:
+            salvato = store.put_atto(atto, fonte="gu", completo=completo)
+            nuovi += salvato
+        if salvato:
+            salva_archi_atti(store, [atto])
 
     if problemi:
         extra = f" (+{len(problemi) - 5} more)" if len(problemi) > 5 else ""
@@ -177,7 +203,9 @@ async def aggiorna_recenti(
     """Queue the issues of the last 30 days that the store does not know. Returns how many.
 
     Series with a "last 30 days" page give all their issues (one request); for the others only
-    the latest issue is known, from the RSS feed. Network errors are raised to the caller.
+    the latest issue is known, from the RSS feed, so any series can be queued. A network or
+    HTTP problem (``GuHttpError``) is raised to the caller: that is the signal to stop the other
+    GU series too. Nothing is queued in that case.
     """
     try:
         raw = await client.get_elenco_30giorni(serie)
@@ -191,6 +219,82 @@ async def aggiorna_recenti(
         ultimo = parser.parse_feed(feed.content, serie)
         voci = [(serie, ultimo.data, ultimo.numero)]
     return store.aggiungi_numeri(voci)
+
+
+def _chiave_cursore(serie: Serie) -> str:
+    return f"gu.{serie.value}.cursore_indietro"
+
+
+async def accoda_indietro(
+    client: SourceClient,
+    parser: Parser,
+    store: ArchiveStore,
+    serie: Serie,
+    *,
+    quanti: int,
+    max_salti: int = MAX_SALTI_CONSECUTIVI,
+) -> int:
+    """Queue up to ``quanti`` issues older than the oldest one known. Returns how many.
+
+    The issue number cannot be computed from the date (decision 010), but within a year it is
+    progressive: starting from the oldest known issue it is lowered by one for every earlier
+    publication day (SG: Monday to Saturday; S4: Tuesday and Friday). Every day is verified with
+    its summary page (``sommario_matches``; the GU answers 200 for any number): a day that does
+    not match (holiday) is recorded as 'vuoto' without number and the count goes on from the
+    same number. One request per day examined: at most ``quanti`` issues plus the holidays met.
+
+    Limits: only SG and S4 have a known weekly pattern (the other series return 0: they can
+    only be queued from the feed by ``aggiorna_recenti``); the walk stops at the beginning of
+    the year (the numbering restarts and the last number of the previous year is unknown); after
+    ``max_salti`` unexpected days in a row it gives up (reason in ``gu.<SERIE>.ultimo_stop``)
+    instead of searching without end, leaving those days unmarked. Progress is kept in
+    ``gu.<SERIE>.cursore_indietro`` (the oldest day examined). A ``GuHttpError`` is raised to
+    the caller; what was queued so far stays.
+    """
+    giorni = GIORNI_PUBBLICAZIONE.get(serie)
+    if giorni is None or quanti <= 0:
+        return 0
+    righe = store.read(
+        "SELECT data, numero FROM numeri WHERE serie = ? AND numero IS NOT NULL"
+        " ORDER BY data LIMIT 1",
+        (serie.value,),
+    )
+    if not righe:
+        return 0  # nothing to start from: aggiorna_recenti gives the first issues
+    ref_data = date.fromisoformat(righe[0]["data"])
+    atteso = righe[0]["numero"] - 1
+    cursore = store.get_stato(_chiave_cursore(serie))
+    giorno = min(date.fromisoformat(cursore), ref_data) if cursore else ref_data
+
+    accodati = 0
+    dubbi: list[date] = []  # days without a match: marked only if an earlier day matches
+    while accodati < quanti and atteso >= 1:
+        giorno -= timedelta(days=1)
+        if giorno.year != ref_data.year:
+            break
+        if giorno.weekday() not in giorni:
+            continue
+        try:
+            raw = await client.get_sommario(giorno, serie, atteso)
+            esiste = sommario_matches(raw.content, giorno, atteso)
+        except GuNotFoundError:
+            esiste = False
+        if not esiste:
+            dubbi.append(giorno)
+            if len(dubbi) >= max_salti:
+                motivo = f"{len(dubbi)} days in a row without issue, down to {dubbi[0]}"
+                log.warning("Backward queue of %s stopped: %s", serie.value, motivo)
+                store.set_stato(f"gu.{serie.value}.ultimo_stop", motivo)
+                break
+            continue
+        for d in dubbi:  # a real issue comes before them: they were holidays
+            store.aggiungi_numeri([(serie, d, None)])
+            store.segna_numero(serie, d, "vuoto")
+        dubbi.clear()
+        accodati += store.aggiungi_numeri([(serie, giorno, atteso)])
+        store.set_stato(_chiave_cursore(serie), giorno.isoformat())
+        atteso -= 1
+    return accodati
 
 
 async def recupera_indietro(
@@ -208,24 +312,48 @@ async def recupera_indietro(
 ) -> EsitoRecupero:
     """Archive up to ``max_numeri`` queued issues, newest first. Resumable: just call it again.
 
-    On a network or HTTP problem (429, 5xx, timeouts...) it waits with an exponential back-off
-    (``backoff_base * 2**n``, capped at ``backoff_tetto``) and retries the same issue up to
-    ``tentativi_rete`` times in a row, then stops for good instead of insisting; the issue stays
-    in the queue. Problems inside an issue (a bad page) are recorded on it and the run goes on.
+    When the queue is empty it first queues older issues with ``accoda_indietro``. On a network
+    or HTTP problem (429, 5xx, timeouts...) it waits with an exponential back-off
+    (``backoff_base * 2**n``, capped at ``backoff_tetto``) and retries the same step up to
+    ``tentativi_rete`` times in a row, then stops for good instead of insisting: the result has
+    ``fermato=True`` and the reason in ``motivo`` (the caller should stop the other GU series
+    too). The attempt is counted once per run on the issue, so an issue that fails over and over
+    is dropped after ``max_tentativi`` runs. Problems inside an issue (a bad page) are recorded
+    on it and the run goes on.
     """
     elaborati = nuovi = 0
     attesa = 0.0
-    for voce in store.prossimi_numeri(serie, max_numeri):
+
+    def ferma(riferimento: str, exc: GuHttpError) -> EsitoRecupero:
+        log.warning("Recovery of %s stopped: %s", serie.value, exc)
+        store.set_stato(f"gu.{serie.value}.ultimo_stop", f"{riferimento}: {exc}")
+        return EsitoRecupero(elaborati, nuovi, True, str(exc), attesa)
+
+    voci = store.prossimi_numeri(serie, max_numeri)
+    if not voci:
         for tentativo in range(tentativi_rete + 1):
             try:
-                nuovi += await acquisisci_numero(client, parser, store, voce, base_url=base_url)
-                elaborati += 1
+                await accoda_indietro(client, parser, store, serie, quanti=max_numeri)
                 break
             except GuHttpError as exc:
                 if tentativo == tentativi_rete:
-                    log.warning("Recovery of %s stopped: %s", serie.value, exc)
-                    store.set_stato(f"gu.{serie.value}.ultimo_stop", f"{voce.data}: {exc}")
-                    return EsitoRecupero(elaborati, nuovi, True, str(exc), attesa)
+                    return ferma("queue", exc)
+                pausa = attesa_backoff(tentativo, backoff_base, backoff_tetto)
+                attesa += pausa
+                await sleep(pausa)
+        voci = store.prossimi_numeri(serie, max_numeri)
+    for voce in voci:
+        for tentativo in range(tentativi_rete + 1):
+            ultimo = tentativo == tentativi_rete
+            try:
+                nuovi += await acquisisci_numero(
+                    client, parser, store, voce, base_url=base_url, conta_tentativo=ultimo
+                )
+                elaborati += 1
+                break
+            except GuHttpError as exc:
+                if ultimo:
+                    return ferma(str(voce.data), exc)
                 pausa = attesa_backoff(tentativo, backoff_base, backoff_tetto)
                 attesa += pausa
                 await sleep(pausa)
