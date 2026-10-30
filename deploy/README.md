@@ -30,9 +30,6 @@ direttamente l'utente `root`, `sudo` funziona lo stesso.
 
 ---
 
-> **Se usi Oracle Cloud «Always Free»** (la prova a costo zero) leggi anche `ORACLE.md`: cambia la
-> creazione della macchina, il firewall e il dominio.
-
 ## Prima di cominciare: cosa devi avere
 
 1. **Un dominio** (per esempio `archivio.tuodominio.it`) di cui puoi modificare i record DNS.
