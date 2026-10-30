@@ -723,9 +723,8 @@ Un codice non archiviato viene comunque registrato come rimosso (non sara' mai a
    `sudo gazzetta-archivio rimuovi 26A05182 --motivo richiesta-interessato`. Controlla che titolo
    e data siano quelli giusti.
 2. **Ferma il servizio web**: `sudo systemctl stop gazzetta-archivio`. Un lettore ancora aperto
-   (il servizio) impedisce di pulire davvero il file; il comando dara' un errore se non ci
-   riesce [questo controllo sara' aggiunto da un altro lavoro: finche' non e' integrato, non
-   fidarti di un esito "ok" se il servizio era acceso].
+   (il servizio) impedisce di pulire davvero il file; il comando riprova per qualche secondo e,
+   se non ci riesce, esce con un errore ("il file NON e' stato pulito") invece di dire ok.
 3. Controlla che ci sia **spazio libero almeno pari alla dimensione dell'archivio** nella cartella
    dati (`df -h /var/lib/gazzetta-archivio`): il VACUUM riscrive il file.
 4. Cancella: `sudo gazzetta-archivio rimuovi 26A05182 --motivo richiesta-interessato --si`.
@@ -736,8 +735,8 @@ Un codice non archiviato viene comunque registrato come rimosso (non sara' mai a
 7. Comunica l'esito all'interessato **entro un mese** dalla richiesta (impegno organizzativo,
    art. 12 del Regolamento; se non sai come, chiedi consiglio).
 
-**Il motivo.** Valori ammessi: `richiesta-interessato`, `errore`, `altro` [saranno imposti dal
-codice in un altro lavoro; finche' non e' integrato, usa comunque solo questi]. Nel motivo **mai
+**Il motivo.** Valori ammessi: `richiesta-interessato`, `errore`, `altro` (il comando
+rifiuta qualsiasi altro valore). Nel motivo **mai
 nome o email** di chi ha chiesto: il registro finisce anche nelle copie di sicurezza. Le richieste
 (chi, quando, esito) tienile in un registro tuo, fuori dall'archivio.
 

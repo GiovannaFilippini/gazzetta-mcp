@@ -61,7 +61,7 @@ rimozione con blocco dei ritorni, avvertenza "non ufficiale" in ogni risposta, a
 
 | Scelta | Rischio | Lavoro |
 |---|---|---|
-| **A. Prudente:** solo Serie Generale e Normattiva; fuori Parte II e S4 | basso | fatto il filtro nel servizio; limitare anche l'acquisizione (in arrivo) |
+| **A. Prudente:** solo Serie Generale e Normattiva; fuori Parte II e S4 | basso | fatto: filtro nel servizio (`--serie SG`) e acquisizione limitata di default alla Serie Generale |
 | B. Tutto, come nella decisione 090 | alto | richiesta di rimozione sempre pronta, valutazione d'impatto, parere esperto |
 | C. Nessun accesso pubblico | nullo | l'archivio resta per uso privato |
 
