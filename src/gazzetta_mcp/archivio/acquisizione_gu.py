@@ -10,6 +10,7 @@ invented: they are archived as partial (``completo=False``) so that they stay co
 
 Reaching further back than the last 30 days: ``accoda_indietro`` walks back from the oldest known
 issue, one publication day at a time, with the numbers deduced and verified (see its docstring).
+At the start of a year it finds the last number of the year before with ``ultimo_numero_anno``.
 """
 
 from __future__ import annotations
@@ -41,6 +42,8 @@ GIORNI_PUBBLICAZIONE: dict[Serie, frozenset[int]] = {
     Serie.S4: frozenset({1, 4}),  # Tuesday and Friday
 }
 MAX_SALTI_CONSECUTIVI = 3  # unexpected days without issue in a row before giving up
+MAX_SONDE_FINE_ANNO = 12  # requests allowed to find the last issue number of a year
+MAX_GIORNI_FINE_ANNO = 4  # last publication days of December examined for that
 
 Sleep = Callable[[float], Awaitable[None]]
 
@@ -221,6 +224,116 @@ async def aggiorna_recenti(
     return store.aggiungi_numeri(voci)
 
 
+def _pasqua(anno: int) -> date:
+    """Easter Sunday (Gauss' algorithm for the Gregorian calendar)."""
+    a, b, c = anno % 19, anno // 100, anno % 100
+    d, e = divmod(b, 4)
+    f = (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30
+    i, k = divmod(c, 4)
+    ell = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * ell) // 451
+    mese, giorno = divmod(h + ell - 7 * m + 114, 31)
+    return date(anno, mese, giorno + 1)
+
+
+def _festivi(anno: int) -> set[date]:
+    """Italian national holidays: the days on which the GU normally has no issue."""
+    fissi = [(1, 1), (1, 6), (4, 25), (5, 1), (6, 2), (8, 15), (11, 1), (12, 8), (12, 25), (12, 26)]
+    return {date(anno, m, d) for m, d in fissi} | {_pasqua(anno) + timedelta(days=1)}
+
+
+def _stima_numero(giorno: date, giorni: frozenset[int]) -> int:
+    """Expected number of the issue of ``giorno``: publication days of the year up to it,
+    holidays excluded. Only a guess to order the probes: every number is verified on the page."""
+    festivi = _festivi(giorno.year)
+    n = 0
+    d = date(giorno.year, 1, 1)
+    while d <= giorno:
+        if d.weekday() in giorni and d not in festivi:
+            n += 1
+        d += timedelta(days=1)
+    return n
+
+
+async def ultimo_numero_anno(
+    client: SourceClient,
+    store: ArchiveStore,
+    serie: Serie,
+    anno: int,
+    *,
+    max_sonde: int = MAX_SONDE_FINE_ANNO,
+) -> int | None:
+    """Last issue number of ``anno`` for ``serie``, or None if it cannot be established.
+
+    The numbering is progressive within the year, so the last number is the one of the last
+    publication day. Starting from the end of December, the number of each day is guessed from
+    the calendar (``_stima_numero``, tried with +-1) and verified on its summary page
+    (``sommario_matches``: a page that does not match date and number is never accepted).
+    The first day that matches is an anchor; the publication days after it are then probed with
+    the next number, so a later issue (extra edition on the last days) is not missed. The
+    answer is kept in ``gu.<SERIE>.ultimo_numero_<anno>`` and never searched twice. At most
+    ``max_sonde`` requests; if no day can be verified within them the answer is None (never a
+    guess). A ``GuHttpError`` is raised to the caller.
+    """
+    giorni = GIORNI_PUBBLICAZIONE.get(serie)
+    if giorni is None:
+        return None
+    chiave = f"gu.{serie.value}.ultimo_numero_{anno}"
+    noto = store.get_stato(chiave)
+    if noto:
+        return int(noto)
+
+    provati: set[tuple[date, int]] = set()
+    sonde = 0
+
+    async def esiste(giorno: date, numero: int) -> bool | None:
+        """True / False after a probe; None when the budget is over."""
+        nonlocal sonde
+        if numero < 1:
+            return False
+        if (giorno, numero) in provati:
+            return False  # already seen not to match
+        if sonde >= max_sonde:
+            return None
+        sonde += 1
+        provati.add((giorno, numero))
+        try:
+            raw = await client.get_sommario(giorno, serie, numero)
+        except GuNotFoundError:
+            return False
+        return sommario_matches(raw.content, giorno, numero)
+
+    fine = date(anno, 12, 31)
+    giorni_fine = [
+        d for d in (fine - timedelta(days=i) for i in range(10)) if d.weekday() in giorni
+    ][:MAX_GIORNI_FINE_ANNO]
+    ancora: tuple[date, int] | None = None
+    for giorno in giorni_fine:
+        stima = _stima_numero(giorno, giorni)
+        for numero in (stima, stima - 1, stima + 1):
+            esito = await esiste(giorno, numero)
+            if esito is None:
+                return None
+            if esito:
+                ancora = (giorno, numero)
+                break
+        if ancora:
+            break
+    if ancora is None:
+        return None
+    ultimo_giorno, ultimo = ancora
+    for giorno in reversed([d for d in giorni_fine if d > ultimo_giorno]):
+        esito = await esiste(giorno, ultimo + 1)
+        if esito is None:
+            return None  # cannot rule out a later issue: do not guess
+        if esito:
+            ultimo += 1
+    store.set_stato(chiave, str(ultimo))
+    return ultimo
+
+
 def _chiave_cursore(serie: Serie) -> str:
     return f"gu.{serie.value}.cursore_indietro"
 
@@ -244,8 +357,9 @@ async def accoda_indietro(
     same number. One request per day examined: at most ``quanti`` issues plus the holidays met.
 
     Limits: only SG and S4 have a known weekly pattern (the other series return 0: they can
-    only be queued from the feed by ``aggiorna_recenti``); the walk stops at the beginning of
-    the year (the numbering restarts and the last number of the previous year is unknown); after
+    only be queued from the feed by ``aggiorna_recenti``); at the beginning of
+    the year it takes the last number of the year before from ``ultimo_numero_anno`` (and stops,
+    with the reason in ``ultimo_stop``, if that cannot be established with certainty); after
     ``max_salti`` unexpected days in a row it gives up (reason in ``gu.<SERIE>.ultimo_stop``)
     instead of searching without end, leaving those days unmarked. Progress is kept in
     ``gu.<SERIE>.cursore_indietro`` (the oldest day examined). A ``GuHttpError`` is raised to
@@ -267,14 +381,25 @@ async def accoda_indietro(
     giorno = min(date.fromisoformat(cursore), ref_data) if cursore else ref_data
 
     accodati = 0
+    anno = ref_data.year
     dubbi: list[date] = []  # days without a match: marked only if an earlier day matches
-    while accodati < quanti and atteso >= 1:
+    while accodati < quanti:
+        if atteso < 1:
+            # The first issue of the year is queued: go on from the last of the year before.
+            ultimo = await ultimo_numero_anno(client, store, serie, anno - 1)
+            if ultimo is None:
+                motivo = f"inizio anno {anno}: ultimo numero del {anno - 1} non determinabile"
+                log.warning("Backward queue of %s stopped: %s", serie.value, motivo)
+                store.set_stato(f"gu.{serie.value}.ultimo_stop", motivo)
+                break
+            anno -= 1
+            atteso = ultimo
+            giorno = date(anno + 1, 1, 1)
         giorno -= timedelta(days=1)
-        if giorno.year != ref_data.year:
-            store.set_stato(
-                f"gu.{serie.value}.ultimo_stop",
-                f"inizio anno {ref_data.year}: manca il numero finale dell'anno prima",
-            )
+        if giorno.year != anno:
+            motivo = f"inizio anno {anno}: numerazione incoerente, fascicolo {atteso} non trovato"
+            log.warning("Backward queue of %s stopped: %s", serie.value, motivo)
+            store.set_stato(f"gu.{serie.value}.ultimo_stop", motivo)
             break
         if giorno.weekday() not in giorni:
             continue

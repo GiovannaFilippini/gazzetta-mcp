@@ -90,11 +90,13 @@ async def test_accoda_indietro_gives_up_after_unexpected_gaps(client, store):
     assert store.conteggio_numeri(Serie.SG) == {"da_fare": 1}  # doubtful days left unmarked
 
 
-async def test_accoda_indietro_stops_at_the_start_of_the_year(client, store):
+async def test_accoda_indietro_stops_at_the_start_of_the_year_if_the_last_number_is_unknown(
+    client, store
+):
     store.aggiungi_numeri([(Serie.SG, date(2026, 1, 3), 2)])
     offer_sg(client, date(2026, 1, 2), 1, 1)
     assert await accoda_indietro(client, GuParser(), store, Serie.SG, quanti=10) == 1
-    assert client.count("sommario") == 1
+    assert "non determinabile" in (store.get_stato("gu.SG.ultimo_stop") or "")
 
 
 async def test_accoda_indietro_uses_the_weekly_pattern_of_s4(client, store):
