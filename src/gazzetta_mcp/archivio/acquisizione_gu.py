@@ -130,6 +130,8 @@ async def _acquisisci(
     problemi: list[str] = []
     senza_url = ATTO_URL_SEGMENT.get(serie) is None
     for v in sommario.voci:
+        if store.e_rimosso(v.codice):  # removed on request: no requests, not counted
+            continue
         if store.has_atto(v.codice) if senza_url else store.ha_testo_completo(v.codice):
             continue
         try:

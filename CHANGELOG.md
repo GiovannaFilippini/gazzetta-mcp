@@ -17,6 +17,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Read-only remote MCP service of the archive (`python -m gazzetta_mcp.archivio.remoto`) with a
   per-IP rate limit and caps on queries and results.
 - The backward recovery of the Gazzetta crosses the year boundary.
+- Removal on request: `python -m gazzetta_mcp.archivio rimuovi CODE --motivo ... --si` deletes an act
+  (text, search index, relations), compacts the file and keeps a register so it is never acquired
+  again. Closed list of reasons; no personal data of the requester.
+- The local server can read the remote archive (off by default, `GAZZETTA_MCP_ARCHIVIO_URL`);
+  the remote service can be limited to some series (`--serie SG`).
+- `deploy/`: runbook, Caddy, systemd units and backup script for a small Linux server.
+- `docs/privacy/`: draft privacy notice and GDPR assessment (to be completed and reviewed).
+
+### Changed
+
+- `aggiorna` of the archive takes only the Serie Generale by default.
 
 ## [0.2.0] - 2026-10-29
 

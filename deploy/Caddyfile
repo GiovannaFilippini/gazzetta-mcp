@@ -1,0 +1,54 @@
+# Caddy davanti al servizio dell'archivio (docs/decisioni/090-archivio-remoto.md).
+# Va copiato in /etc/caddy/Caddyfile. Prima di usarlo sostituisci:
+#   archivio.example.org  ->  il tuo dominio vero
+#   contatto@example.org  ->  la tua email (serve solo a Let's Encrypt per avvisi di scadenza)
+#
+# Caddy ottiene e rinnova da solo il certificato TLS: servono le porte 80 e 443 aperte
+# e il record DNS del dominio che punta a questo server.
+
+{
+	email contatto@example.org
+}
+
+archivio.example.org {
+	# Il corpo di una richiesta MCP e' piccolo: il servizio rifiuta oltre 64 KB,
+	# qui ci si ferma prima ancora di inoltrare.
+	request_body {
+		max_size 64KB
+	}
+
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		# E' un'API, non una pagina: niente contenuto attivo e niente indicizzazione.
+		Content-Security-Policy "default-src 'none'; frame-ancestors 'none'"
+		X-Robots-Tag "noindex, nofollow"
+		-Server
+	}
+
+	# NIENTE log degli accessi: nessuna direttiva `log` qui (in Caddy 2 i log di accesso
+	# sono spenti se non li chiedi) e il testo delle ricerche non viene mai scritto.
+	# Non aggiungere `log` per curiosita': indirizzi IP e ricerche sono dati personali.
+
+	reverse_proxy 127.0.0.1:8080 {
+		# IMPORTANTE per la sicurezza del limite di richieste per IP.
+		# Il servizio, avviato con --trust-proxy, si fida dell'ULTIMA voce di
+		# X-Forwarded-For. Questa riga SOSTITUISCE qualunque X-Forwarded-For mandato dal
+		# visitatore con il solo indirizzo che Caddy vede davvero sulla connessione
+		# ({remote_host}). Cosi' un visitatore non puo' fingersi un altro IP
+		# (per aggirare il limite) ne' inventarne uno diverso a ogni richiesta.
+		# Non togliere questa riga e non mettere altri proxy o CDN davanti senza rivedere tutto.
+		header_up X-Forwarded-For {remote_host}
+
+		# Le risposte MCP possono arrivare a pezzi (streaming): non trattenerle.
+		flush_interval -1
+
+		transport http {
+			dial_timeout 5s
+			response_header_timeout 60s
+		}
+	}
+}

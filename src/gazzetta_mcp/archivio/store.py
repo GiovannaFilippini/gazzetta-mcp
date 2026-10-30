@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import sqlite3
 import threading
+import time
 from collections.abc import Iterable, Sequence
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -17,6 +18,8 @@ from ..cache.sqlite import build_match_query
 from ..models import Atto, SearchFilters, SearchHit, Serie
 from .tipi import ARCHI_TIPI, FONTI, Arco, NumeroDaFare
 
+MOTIVI_RIMOZIONE = ("richiesta-interessato", "errore", "altro")  # what the command line allows
+MAX_MOTIVO = 40
 MAX_TESTO_SNIPPET = 300_000  # characters: longer texts get no highlighted excerpt
 MAX_PAROLE_RICERCA = 12  # words of a search used; the rest is ignored
 STATI_NUMERO = ("da_fare", "fatto", "errore", "vuoto")  # "vuoto": issue exists but has no acts
@@ -81,6 +84,15 @@ _MIGRATIONS = [
     # v2: an act taken from Normattiva holds only its first article; the GU copy completes it.
     """
     ALTER TABLE atti ADD COLUMN testo_completo INTEGER NOT NULL DEFAULT 1;
+    """,
+    # v3: acts removed on request. Only the code is kept (never the text), so that the daily
+    # jobs do not download the act again.
+    """
+    CREATE TABLE rimossi (
+        codice TEXT PRIMARY KEY,
+        motivo TEXT NOT NULL,
+        rimosso_il TEXT NOT NULL
+    );
     """,
 ]
 
@@ -167,6 +179,8 @@ class ArchiveStore:
         if fonte not in FONTI:
             raise ValueError(f"fonte must be one of {FONTI}, got {fonte!r}")
         with self._lock, self._conn:
+            if self._rimosso(atto.codice):
+                return False
             cur = self._conn.execute(
                 "INSERT OR IGNORE INTO atti (codice, fonte, serie, data, titolo, emettitore, tipo,"
                 " testo, link, numero_gu, urn, archiviato_il, testo_completo)"
@@ -195,6 +209,91 @@ class ArchiveStore:
             )
             return True
 
+    # -- removal on request -----------------------------------------------------------------
+
+    def _rimosso(self, codice: str) -> bool:
+        return (
+            self._conn.execute("SELECT 1 FROM rimossi WHERE codice = ?", (codice,)).fetchone()
+            is not None
+        )
+
+    def e_rimosso(self, codice: str) -> bool:
+        """True if the act was removed on request: it must never be archived again."""
+        with self._lock:
+            return self._rimosso(codice)
+
+    def rimuovi_atto(self, codice: str, motivo: str) -> bool:
+        """Remove an act for good: row, full text index entry and relations, in one transaction.
+
+        The code is recorded in ``rimossi`` (without any text) even when the act is not
+        archived, so it is never acquired later. Returns True if an archived act was deleted.
+        Call ``compatta`` afterwards to drop the deleted data from the file.
+        """
+        motivo = motivo.strip()
+        if len(motivo) > MAX_MOTIVO or "@" in motivo:
+            raise ValueError(
+                f"The reason must be short ({MAX_MOTIVO} characters) and must not contain an "
+                "email address: do not write who asked."
+            )
+        with self._lock:
+            # Overwrite freed pages with zeros (a per-connection setting, not allowed inside
+            # a transaction).
+            self._conn.execute("PRAGMA secure_delete = ON")
+            with self._conn:
+                row = self._conn.execute(
+                    "SELECT id FROM atti WHERE codice = ?", (codice,)
+                ).fetchone()
+                if row is not None:
+                    self._conn.execute("DELETE FROM atti_fts WHERE rowid = ?", (row["id"],))
+                    self._conn.execute("DELETE FROM atti WHERE id = ?", (row["id"],))
+                self._conn.execute("DELETE FROM archi WHERE da = ? OR a = ?", (codice, codice))
+                self._conn.execute(
+                    "INSERT INTO rimossi (codice, motivo, rimosso_il) VALUES (?,?,?)"
+                    " ON CONFLICT(codice) DO NOTHING",
+                    (codice, motivo, _now()),
+                )
+            return row is not None
+
+    def elenco_rimossi(self) -> list[tuple[str, str, str]]:
+        """``(codice, motivo, rimosso_il)`` of the removed acts, oldest first."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT codice, motivo, rimosso_il FROM rimossi ORDER BY rimosso_il, codice"
+            ).fetchall()
+        return [(r["codice"], r["motivo"], r["rimosso_il"]) for r in rows]
+
+    def count_rimossi(self) -> int:
+        with self._lock:
+            return self._conn.execute("SELECT COUNT(*) FROM rimossi").fetchone()[0]
+
+    def compatta(self) -> None:
+        """Make deleted data leave the file: merge the text index, checkpoint the WAL, VACUUM.
+
+        Needs no other connection writing to the file. Backups taken earlier are not touched.
+        """
+        with self._lock:
+            self._conn.execute("INSERT INTO atti_fts (atti_fts) VALUES ('optimize')")
+            self._conn.commit()
+            self._conn.execute("PRAGMA secure_delete = ON")
+            self._checkpoint_completo()
+            self._conn.execute("VACUUM")
+            self._checkpoint_completo()
+
+    def _checkpoint_completo(self, tentativi: int = 5, pausa: float = 1.0) -> None:
+        """Checkpoint the whole WAL into the main file. A reader with an open transaction makes
+        SQLite answer ``busy`` without raising: then the deleted text may still be in the file,
+        so wait a little and, if it does not work, say so instead of claiming success."""
+        for n in range(tentativi):
+            busy = self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()[0]
+            if not busy:
+                return
+            if n < tentativi - 1:
+                time.sleep(pausa)
+        raise ArchiveError(
+            "Impossibile pulire il file: un altro processo sta leggendo l'archivio. "
+            "Ferma il servizio web e riprova."
+        )
+
     def ha_testo_completo(self, codice: str) -> bool:
         """True if the act is archived with its full text (False: absent or partial)."""
         with self._lock:
@@ -215,6 +314,8 @@ class ArchiveStore:
                 "SELECT id, testo_completo, testo, urn FROM atti WHERE codice = ?", (atto.codice,)
             ).fetchone()
             if row is None or (row["testo_completo"] and row["testo"]):
+                return False
+            if self._rimosso(atto.codice):
                 return False
             self._conn.execute(
                 "UPDATE atti SET fonte=?, serie=?, data=?, titolo=?, emettitore=?, tipo=?,"
@@ -444,6 +545,8 @@ class ArchiveStore:
         new = 0
         with self._lock, self._conn:
             for row in rows:
+                if self._rimosso(row[0]) or self._rimosso(row[1]):
+                    continue
                 new += self._conn.execute(
                     "INSERT OR IGNORE INTO archi (da, a, tipo, fonte) VALUES (?,?,?,?)", row
                 ).rowcount

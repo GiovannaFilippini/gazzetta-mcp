@@ -1,0 +1,23 @@
+#!/bin/sh
+# Comodo per le operazioni a mano: esegue "python -m gazzetta_mcp.archivio <comando>" come utente
+# "gazzetta", con le stesse variabili e gli stessi permessi dei lavori automatici.
+# Installato come /usr/local/bin/gazzetta-archivio. Esempi:
+#   sudo gazzetta-archivio stato
+#   sudo gazzetta-archivio aggiorna
+#   sudo gazzetta-archivio recupera --serie SG
+#   sudo gazzetta-archivio rimossi
+#   sudo gazzetta-archivio rimuovi 26A05182 --motivo richiesta-interessato        (anteprima)
+#   sudo gazzetta-archivio rimuovi 26A05182 --motivo richiesta-interessato --si   (cancella)
+# Lancia SEMPRE i comandi dell'archivio tramite questo script, mai "python -m ..." a mano: qui
+# si prende il lucchetto che li serializza con l'aggiornamento e il recupero. Prima di
+# "rimuovi --si" ferma il servizio web (systemctl stop gazzetta-archivio) e riavvialo dopo:
+# vedi README, "Cancellare dati su richiesta". Nel motivo MAI nome o email di chi ha chiesto.
+
+set -eu
+set -a
+# shellcheck disable=SC1091
+. /etc/gazzetta-archivio/variabili.env
+set +a
+umask 0007
+exec /usr/bin/flock -w 3600 /var/lib/gazzetta-archivio/.lavori.lock \
+    runuser -u gazzetta -- /opt/gazzetta-mcp/venv/bin/python -m gazzetta_mcp.archivio "$@"

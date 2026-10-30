@@ -1,0 +1,13 @@
+# Ogni giorno alle 07:00 (ora del server): dopo l'aggiornamento delle 05:30, cosi' il
+# controllo guarda anche i numeri appena arrivati.
+
+[Unit]
+Description=Archivio Gazzetta Ufficiale - controllo giornaliero del parser (orario)
+
+[Timer]
+OnCalendar=*-*-* 07:00:00
+RandomizedDelaySec=600
+Persistent=true
+
+[Install]
+WantedBy=timers.target
