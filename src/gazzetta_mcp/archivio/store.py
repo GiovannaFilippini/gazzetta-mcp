@@ -264,6 +264,23 @@ class ArchiveStore:
             r = self._conn.execute("SELECT codice FROM atti WHERE urn = ?", (urn,)).fetchone()
         return r["codice"] if r else None
 
+    def codici_da_urn_breve(self, tipo: str, anno: int | str, numero: int | str) -> list[str]:
+        """Codes of the archived acts whose full URN has this type, year and number.
+
+        ``tipo`` is the URN type segment (``decreto.legislativo``). It answers a year-only
+        citation (``urn:nir:stato:decreto.legislativo:2001;165``) with the acts known by a full
+        date (``...:2001-03-30;165``). More than one code means the short form is ambiguous.
+        Uses the ``atti_urn`` index through a range on the prefix; every value is bound.
+        """
+        prefisso = f"urn:nir:stato:{tipo}:{int(anno):04d}-"
+        fine = prefisso[:-1] + "."  # '.' is the character right after '-'
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT codice, urn FROM atti WHERE urn >= ? AND urn < ? ORDER BY codice",
+                (prefisso, fine),
+            ).fetchall()
+        return [r["codice"] for r in rows if r["urn"].partition(";")[2] == str(numero)]
+
     def count_atti(self) -> int:
         with self._lock:
             return self._conn.execute("SELECT COUNT(*) FROM atti").fetchone()[0]

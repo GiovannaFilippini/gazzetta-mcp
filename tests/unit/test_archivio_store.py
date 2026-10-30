@@ -139,3 +139,17 @@ def test_not_a_database_is_an_archive_error(tmp_path):
     bad.write_text("questo non e' un database sqlite" * 50)
     with pytest.raises(ArchiveError):
         ArchiveStore(bad)
+
+
+def test_codici_da_urn_breve_matches_type_year_and_number(store):
+    for codice, urn in (
+        ("A", "urn:nir:stato:decreto.legislativo:2001-03-30;165"),
+        ("B", "urn:nir:stato:decreto.legislativo:2001-03-30;1650"),
+        ("C", "urn:nir:stato:decreto.legislativo:2002-03-30;165"),
+        ("D", "urn:nir:stato:legge:2001-03-30;165"),
+        ("E", "urn:nir:stato:decreto.legislativo:2001;165"),
+    ):
+        store.put_atto(_atto(codice), fonte="gu", urn=urn)
+    assert store.codici_da_urn_breve("decreto.legislativo", 2001, 165) == ["A"]
+    assert store.codici_da_urn_breve("decreto.legislativo", "2001", "1650") == ["B"]
+    assert store.codici_da_urn_breve("legge", 1999, 1) == []

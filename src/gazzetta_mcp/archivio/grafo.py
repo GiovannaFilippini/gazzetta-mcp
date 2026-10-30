@@ -18,6 +18,7 @@ or regional types) no edge is produced.
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -207,7 +208,13 @@ def salva_archi_atti(store: ArchiveStore, atti: Iterable[Atto]) -> int:
 # -- history queries ----------------------------------------------------------------------
 
 TIPI_STORICO = ("modifica", "abroga", "rettifica", "errata_corrige")
-_CANON = "COALESCE((SELECT codice FROM atti WHERE urn = archi.{col} LIMIT 1), archi.{col})"
+# Order of resolution: exact URN, then the year-only URN mapped by ``_mappa_brevi`` (passed to
+# the query as the bound JSON of the CTE ``brevi``), then the endpoint as it is.
+_CANON = (
+    "COALESCE((SELECT codice FROM atti WHERE urn = archi.{col} LIMIT 1),"
+    " (SELECT codice FROM brevi WHERE urn = archi.{col}), archi.{col})"
+)
+_URN_BREVE_RE = re.compile(r"^urn:nir:stato:([^:]+):(\d{4});(.+)$")
 
 
 @dataclass(frozen=True)
@@ -233,13 +240,17 @@ def storico(store: ArchiveStore, codice: str, *, profondita: int = 5) -> list[Vo
     if profondita < 1:
         return []
     cap = min(profondita, PROFONDITA_MASSIMA)
-    partenza = _risolvi(store, codice)
+    brevi = _mappa_brevi(store)
+    partenza = _risolvi(store, codice, brevi)
     risultato: list[VoceStorico] = []
     for direzione, da_col, a_col in (("agisce_su", "da", "a"), ("subisce", "a", "da")):
         # ``a_col`` is the column matched with the current node, ``da_col`` the one to move to.
         # Only constant fragments are interpolated; every value is a bound parameter.
         sql = f"""
-            WITH RECURSIVE e(da, a, tipo) AS (
+            WITH RECURSIVE brevi(urn, codice) AS (
+                SELECT key, value FROM json_each(?)
+            ),
+            e(da, a, tipo) AS (
                 SELECT {_CANON.format(col="da")}, {_CANON.format(col="a")}, tipo FROM archi
                 WHERE tipo IN ({",".join("?" * len(TIPI_STORICO))})
             ),
@@ -253,13 +264,39 @@ def storico(store: ArchiveStore, codice: str, *, profondita: int = 5) -> list[Vo
             )
             SELECT nodo, MIN(prof) AS prof, tipo FROM catena GROUP BY nodo ORDER BY prof, nodo
         """  # the bare column ``tipo`` comes from the row holding the minimum depth
-        params = [*TIPI_STORICO, partenza, partenza, partenza, cap]
+        params = [json.dumps(brevi), *TIPI_STORICO, partenza, partenza, partenza, cap]
         for r in store.read(sql, params):
             risultato.append(VoceStorico(r["nodo"], r["prof"], r["tipo"], direzione))
     risultato.sort(key=lambda v: (v.profondita, v.codice, v.direzione))
     return risultato
 
 
-def _risolvi(store: ArchiveStore, chiave: str) -> str:
-    """Canonical key of a node: the archived code if ``chiave`` is a known URN."""
+def _mappa_brevi(store: ArchiveStore) -> dict[str, str]:
+    """Year-only URN endpoints of the edges -> the one archived act they stand for.
+
+    A short URN resolves only when exactly one archived act has the same type, year and number;
+    with none or several matches it is left out (never guess between acts).
+    """
+    rows = store.read(
+        "SELECT a AS u FROM archi WHERE a GLOB 'urn:nir:stato:*;*'"
+        " UNION SELECT da FROM archi WHERE da GLOB 'urn:nir:stato:*;*'"
+    )
+    mappa: dict[str, str] = {}
+    for r in rows:
+        m = _URN_BREVE_RE.match(r["u"])
+        if m:
+            codici = store.codici_da_urn_breve(*m.groups())
+            if len(codici) == 1:
+                mappa[r["u"]] = codici[0]
+    return mappa
+
+
+def _risolvi(store: ArchiveStore, chiave: str, brevi: dict[str, str]) -> str:
+    """Canonical key of a node: the archived code if ``chiave`` is a known URN (full or short)."""
+    if chiave in brevi:
+        return store.codice_da_urn(chiave) or brevi[chiave]
+    m = _URN_BREVE_RE.match(chiave)
+    if m and not store.codice_da_urn(chiave):
+        codici = store.codici_da_urn_breve(*m.groups())
+        return codici[0] if len(codici) == 1 else chiave
     return store.codice_da_urn(chiave) or chiave
