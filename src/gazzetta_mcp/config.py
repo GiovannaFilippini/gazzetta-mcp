@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from . import __version__
+
+_log = logging.getLogger("gazzetta_mcp.config")
 
 
 def _default_cache_path() -> Path:
@@ -29,7 +33,19 @@ def _url_remota(raw: str | None) -> str:
     from .archivio.cliente_remoto import url_ammesso
 
     url = (raw or "").strip()
-    return url if url and url_ammesso(url) else ""
+    if url and url_ammesso(url):
+        return url
+    if url:
+        try:
+            host = urlsplit(url).hostname or "?"
+        except ValueError:
+            host = "?"
+        _log.warning(
+            "GAZZETTA_MCP_ARCHIVIO_URL ignored (host %s): it must be an https URL "
+            "without credentials; the remote archive stays off.",
+            host,
+        )
+    return ""
 
 
 def _secondi(raw: str | None, default: float) -> float:

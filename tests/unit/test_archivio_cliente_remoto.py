@@ -111,6 +111,19 @@ def test_url_allowed_only_https_or_local_http(url, ok):
     assert url_ammesso(url) is ok
 
 
+def test_url_allowed_ipv6_loopback():
+    assert url_ammesso("http://[::1]:8080/mcp") is True
+
+
+def test_bad_url_logs_one_warning_with_host_only(monkeypatch, caplog):
+    monkeypatch.setenv("GAZZETTA_MCP_ARCHIVIO_URL", "http://evil.test/secret/path?k=1")
+    with caplog.at_level("WARNING", logger="gazzetta_mcp.config"):
+        assert Settings.from_env().archivio_remoto_url == ""
+    assert len(caplog.records) == 1
+    msg = caplog.records[0].getMessage()
+    assert "evil.test" in msg and "secret" not in msg and "k=1" not in msg
+
+
 def test_client_refuses_plain_http_remote():
     with pytest.raises(ValueError, match="https"):
         ClienteRemoto("http://archivio.example.org/mcp")
@@ -161,7 +174,6 @@ async def test_cerca_drops_invalid_fields_and_truncates():
         hit("bad code!"),
         hit("26A00003", serie="XX"),
         hit("26A00004", data="2026-13-45"),
-        hit("26A00005", link="javascript:alert(1)"),
         hit("26A00006", titolo=""),
         "not a dict",
         hit("26A00001"),  # duplicate of the first
@@ -170,7 +182,7 @@ async def test_cerca_drops_invalid_fields_and_truncates():
     hits = await c.cerca("x", FILTRI)
     assert [h.codice for h in hits] == ["26A00001"]
     assert len(hits[0].titolo) == cr.MAX_TITOLO and len(hits[0].estratto) == cr.MAX_ESTRATTO
-    assert c.contatori["voce_scartata"] == 6
+    assert c.contatori["voce_scartata"] == 5
 
 
 async def test_cerca_caps_number_of_hits():
@@ -318,7 +330,8 @@ async def test_leggi_atto_reassembles_pieces():
 async def test_leggi_atto_gives_up_after_too_many_pieces():
     def handler(request):
         off = json.loads(request.content)["params"]["arguments"]["offset"]
-        return rpc(chunk("x" * 10, off, 10_000, off + 10))
+        size = 1000 if off == 0 else 10  # looks readable at first, then pieces shrink
+        return rpc(chunk("x" * size, off, 10_000, off + size))
 
     c, seen = client_for(handler)
     assert await c.leggi_atto("26A00001") is None
@@ -336,7 +349,6 @@ async def test_leggi_atto_gives_up_after_too_many_pieces():
         chunk("abc", 0, cr.MAX_TESTO + 1, None),
         chunk("abc", 0, True, None),
         chunk("abc", 0, 3, None) | {"data": "nope"},
-        chunk("abc", 0, 3, None) | {"link": "ftp://x"},
         chunk("abc", 0, 3, None) | {"serie": "ZZ"},
     ],
 )
@@ -386,7 +398,7 @@ def service_with_remote(handler):
     return svc, seen, rseen, cache
 
 
-async def test_leggi_atto_uses_remote_before_sources_and_caches_it():
+async def test_leggi_atto_uses_remote_before_sources_and_does_not_cache_it():
     texto = "Art. 1 testo remoto"
     svc, gu_seen, rseen, cache = service_with_remote(
         lambda r: rpc(chunk(texto, 0, len(texto), None))
@@ -394,9 +406,10 @@ async def test_leggi_atto_uses_remote_before_sources_and_caches_it():
     out = await svc.leggi_atto("26A00001")
     assert out["testo"] == texto and gu_seen == []
     assert "CC BY 4.0" in out["nota"] and "non ufficiale" in out["nota"].lower()
-    assert cache.get_atto("26A00001").testo == texto
-    again = await svc.leggi_atto("26A00001")  # now from the local cache
-    assert again["dalla_cache"] is True and len(rseen) == 1
+    assert cache.get_atto("26A00001") is None  # remote acts are never cached locally
+    again = await svc.leggi_atto("26A00001")
+    assert again["dalla_cache"] is False and len(rseen) == 2
+    assert "CC BY 4.0" in again["nota"]  # the origin note shows on every read
 
 
 async def test_leggi_atto_falls_back_to_sources_when_remote_fails():
@@ -446,3 +459,77 @@ async def test_build_service_wires_remote_only_when_url_is_set(tmp_path):
     assert isinstance(on._archivio_remoto, ClienteRemoto)
     await on.aclose()
     assert on._archivio_remoto._http.is_closed
+
+
+# -- review fixes -------------------------------------------------------------------------
+
+
+async def test_long_act_gives_up_after_first_piece_and_is_remembered():
+    def handler(request):
+        off = json.loads(request.content)["params"]["arguments"]["offset"]
+        return rpc(chunk("x" * 10, off, 1000, off + 10))
+
+    c, seen = client_for(handler)
+    assert await c.leggi_atto("26A00001") is None
+    assert len(seen) == 1  # no burst spent on an act that cannot be read in time
+    assert await c.leggi_atto("26A00001") is None
+    assert len(seen) == 1  # remembered: not even the first piece is asked again
+
+
+async def test_long_act_memory_is_bounded(monkeypatch):
+    monkeypatch.setattr(cr, "MAX_TROPPO_LUNGHI", 2)
+
+    def handler(request):
+        codice = json.loads(request.content)["params"]["arguments"]["codice"]
+        return rpc(chunk("x", 0, 1000, 1, codice=codice))
+
+    c, _ = client_for(handler)
+    for n in range(3):
+        await c.leggi_atto(f"26A0000{n}")
+    assert len(c._troppo_lunghi) == 2 and "26A00000" not in c._troppo_lunghi
+
+
+@pytest.mark.parametrize(
+    "link",
+    [
+        "https://evil.test/x",
+        "http://www.gazzettaufficiale.it/x",
+        "https://user:pw@www.gazzettaufficiale.it/x",
+        "https://gazzettaufficiale.it.evil.test/x",
+        "https://evilgazzettaufficiale.it/x",
+        "ftp://x",
+        "javascript:alert(1)",
+    ],
+)
+async def test_untrusted_link_is_rebuilt(link):
+    rebuilt = "https://www.gazzettaufficiale.it/eli/id/2026/10/03/26A00001/SG"
+    c, _ = client_for(lambda r: rpc({"risultati": [hit(link=link)]}))
+    assert (await c.cerca("x", FILTRI))[0].link == rebuilt
+    c, _ = client_for(lambda r: rpc(chunk("abc", 0, 3, None) | {"link": link}))
+    assert (await c.leggi_atto("26A00001")).link == rebuilt
+
+
+@pytest.mark.parametrize(
+    "link",
+    [
+        "https://www.gazzettaufficiale.it/eli/id/2026/10/03/26A00001/SG",
+        "https://gazzettaufficiale.it/x",
+        "https://www.normattiva.it/uri-res/N2Ls?urn:nir:x",
+        "https://api.normattiva.it/x",
+    ],
+)
+async def test_official_link_is_kept(link):
+    c, _ = client_for(lambda r: rpc({"risultati": [hit(link=link)]}))
+    assert (await c.cerca("x", FILTRI))[0].link == link
+
+
+async def test_title_and_excerpt_are_cleaned():
+    dirty = hit(
+        titolo="A\x00B\n\n\n  C\tD",
+        estratto="uno\r\n\r\ndue   tre\x07",
+    )
+    c, _ = client_for(lambda r: rpc({"risultati": [dirty]}))
+    h = (await c.cerca("x", FILTRI))[0]
+    assert h.titolo == "AB C D" and h.estratto == "uno due tre"
+    c, _ = client_for(lambda r: rpc(chunk("abc", 0, 3, None) | {"titolo": "T\n\n x\x00"}))
+    assert (await c.leggi_atto("26A00001")).titolo == "T x"

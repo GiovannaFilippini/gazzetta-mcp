@@ -26,6 +26,7 @@ import httpx
 
 from .. import __version__
 from ..models import Atto, SearchFilters, SearchHit, Serie
+from ..parsing._util import eli_id
 
 log = logging.getLogger("gazzetta_mcp.cliente_remoto")
 
@@ -41,6 +42,9 @@ MAX_TITOLO = 500
 MAX_ESTRATTO = 1000
 MAX_LINK = 500
 MAX_CAMPO = 200
+MAX_TROPPO_LUNGHI = 256  # codes remembered as 'too long to read from the remote'
+HOST_UFFICIALI = ("gazzettaufficiale.it", "normattiva.it")
+BASE_UFFICIALE = "https://www.gazzettaufficiale.it"
 
 TIMEOUT_DEFAULT = 8.0
 SOGLIA_ERRORI = 3  # consecutive failures that open the breaker
@@ -63,16 +67,47 @@ def url_ammesso(url: str) -> bool:
         return False
     if parts.scheme == "https":
         return True
-    return parts.scheme == "http" and host in {"localhost", "127.0.0.1"}
+    return parts.scheme == "http" and host in {"localhost", "127.0.0.1", "::1"}
 
 
 def _str(valore: Any, massimo: int) -> str | None:
     return valore.strip()[:massimo] if isinstance(valore, str) else None
 
 
-def _link(valore: Any) -> str | None:
+_SPAZI = re.compile(r"\s+")
+_CONTROLLO = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+
+
+def _testo_breve(valore: Any, massimo: int) -> str | None:
+    """Untrusted display text: control characters dropped, whitespace collapsed, truncated."""
+    if not isinstance(valore, str):
+        return None
+    return _SPAZI.sub(" ", _CONTROLLO.sub("", valore)).strip()[:massimo]
+
+
+def _link_ufficiale(valore: Any) -> str | None:
+    """The link only if it is https, without credentials, on an official host."""
     link = _str(valore, MAX_LINK)
-    return link if link and link.startswith(("https://", "http://")) else None
+    if not link:
+        return None
+    try:
+        parts = urlsplit(link)
+        host = (parts.hostname or "").lower()
+        _ = parts.port
+    except ValueError:
+        return None
+    if parts.scheme != "https" or parts.username or parts.password:
+        return None
+    if any(host == h or host.endswith("." + h) for h in HOST_UFFICIALI):
+        return link
+    return None
+
+
+def _link(valore: Any, giorno: date, codice: str, serie: Serie) -> str:
+    """The remote link when official, otherwise rebuilt like the rest of the project does."""
+    return _link_ufficiale(valore) or eli_id(
+        BASE_UFFICIALE, giorno.year, giorno.month, giorno.day, codice, serie.value
+    )
 
 
 def _data(valore: Any) -> date | None:
@@ -150,6 +185,7 @@ class ClienteRemoto:
         self._fermo_fino = 0.0  # no calls before this instant (circuit breaker)
         self._errori_di_fila = 0
         self.contatori: Counter[str] = Counter()
+        self._troppo_lunghi: dict[str, None] = {}  # bounded, oldest forgotten first
         self._http = httpx.AsyncClient(
             timeout=timeout,
             headers={
@@ -256,7 +292,7 @@ class ClienteRemoto:
                 continue
             codice = g.get("codice")
             serie, giorno = _serie(g.get("serie")), _data(g.get("data"))
-            titolo, link = _str(g.get("titolo"), MAX_TITOLO), _link(g.get("link"))
+            titolo = _testo_breve(g.get("titolo"), MAX_TITOLO)
             if (
                 not isinstance(codice, str)
                 or not _CODICE.match(codice)
@@ -264,7 +300,6 @@ class ClienteRemoto:
                 or serie is None
                 or giorno is None
                 or not titolo
-                or link is None
             ):
                 self.contatori["voce_scartata"] += 1
                 continue
@@ -275,8 +310,8 @@ class ClienteRemoto:
                     serie=serie,
                     data=giorno,
                     titolo=titolo,
-                    estratto=_str(g.get("estratto"), MAX_ESTRATTO) or "",
-                    link=link,
+                    estratto=_testo_breve(g.get("estratto"), MAX_ESTRATTO) or "",
+                    link=_link(g.get("link"), giorno, codice, serie),
                     # The service sends them best first and gives no score: keep the order.
                     punteggio=max(0.0, 1.0 - 0.01 * len(hits)),
                     origine=ORIGINE,
@@ -284,9 +319,18 @@ class ClienteRemoto:
             )
         return hits
 
+    def _ricorda_lungo(self, codice: str) -> None:
+        self.contatori["troppo_lungo"] += 1
+        self._troppo_lunghi[codice] = None
+        while len(self._troppo_lunghi) > MAX_TROPPO_LUNGHI:
+            del self._troppo_lunghi[next(iter(self._troppo_lunghi))]
+
     async def leggi_atto(self, codice: str) -> Atto | None:
         """The act with its COMPLETE text, or None. Pieces are reassembled (bounded requests)."""
         if not _CODICE.match(codice):
+            return None
+        if codice in self._troppo_lunghi:
+            self.contatori["troppo_lungo"] += 1
             return None
         pezzi: list[str] = []
         offset = 0
@@ -313,6 +357,10 @@ class ClienteRemoto:
                 return None
             if not prima:
                 prima, totale = r, tot
+                if -(-tot // len(testo)) > MAX_RICHIESTE_LETTURA:
+                    # Too many pieces: do not burn the per-IP burst, and do not retry later.
+                    self._ricorda_lungo(codice)
+                    return None
             pezzi.append(testo)
             offset += len(testo)
             if prossimo is None:
@@ -325,8 +373,8 @@ class ClienteRemoto:
             self.contatori["parziale"] += 1
             return None
         serie, giorno = _serie(prima.get("serie")), _data(prima.get("data"))
-        titolo, link = _str(prima.get("titolo"), MAX_TITOLO), _link(prima.get("link"))
-        if serie is None or giorno is None or not titolo or link is None:
+        titolo = _testo_breve(prima.get("titolo"), MAX_TITOLO)
+        if serie is None or giorno is None or not titolo:
             self.contatori["malformata"] += 1
             return None
         return Atto(
@@ -337,5 +385,5 @@ class ClienteRemoto:
             emettitore=_str(prima.get("emettitore"), MAX_CAMPO) or "",
             tipo=None,
             testo=completo,
-            link=link,
+            link=_link(prima.get("link"), giorno, codice, serie),
         )
