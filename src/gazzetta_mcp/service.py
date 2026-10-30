@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import re
+import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta, timezone
@@ -360,9 +361,9 @@ class GazzettaService:
         s_arg, d_arg = _parse_serie(serie), _parse_date(data)
 
         atto = self._cache.get_atto(codice)
-        if (atto is None or not atto.testo) and self._archivio_store is not None:
-            archived = self._archivio_store.get_atto(codice)
-            if archived is not None and archived.testo:
+        if atto is None or not atto.testo:
+            archived = self._archived_atto(codice)
+            if archived is not None:
                 self._cache.put_atto(archived)
                 atto = archived
         from_cache = atto is not None and bool(atto.testo)
@@ -382,6 +383,27 @@ class GazzettaService:
                 )
             atto = await self._fetch_atto(codice, d, s, guessed)
         return self._atto_result(atto, offset, from_cache)
+
+    def _archived_atto(self, codice: str) -> Atto | None:
+        """The act from the central archive, only with its full text. Any archive problem
+        (corrupt or locked database) just means 'not there': the sources are used instead."""
+        store = self._archivio_store
+        if store is None:
+            return None
+        try:
+            if not store.ha_testo_completo(codice):
+                return None
+            return store.get_atto(codice)
+        except (sqlite3.Error, ValueError):
+            return None
+
+    def _archive_hits(self, testo: str, filtri: SearchFilters) -> list[SearchHit]:
+        if self._archivio_store is None:
+            return []
+        try:
+            return self._archivio_store.search(testo, filtri)
+        except (sqlite3.Error, ValueError):
+            return []
 
     async def _fetch_atto(self, codice: str, d: date, s: Serie, guessed: bool) -> Atto:
         try:
@@ -833,11 +855,10 @@ class GazzettaService:
                 [self._base],
             )
         hits = self._cache.search(testo, filtri)
-        if self._archivio_store is not None:
-            seen = {h.codice for h in hits}
-            hits += [h for h in self._archivio_store.search(testo, filtri) if h.codice not in seen][
-                : filtri.limite
-            ]
+        seen = {h.codice for h in hits}
+        extra = [h for h in self._archive_hits(testo, filtri) if h.codice not in seen]
+        if extra:  # best matches first, whatever the place they come from
+            hits = sorted(hits + extra, key=lambda h: -h.punteggio)[: filtri.limite]
         fonti_archivio: list[str] = []
         if aggiorna:
             hits, fonti_archivio = await self._search_archives(testo, filtri, s, hits, note)
@@ -978,7 +999,7 @@ def build_service(settings: Settings | None = None) -> GazzettaService:
     if settings.archivio_path.exists():  # never create an empty archive just by reading
         try:
             archivio_store = ArchiveStore(settings.archivio_path)
-        except ArchiveError:
+        except (ArchiveError, OSError):
             archivio_store = None  # an unreadable archive must not stop the local server
     closers = (client.aclose, cache.close)
     if archivio_store is not None:
