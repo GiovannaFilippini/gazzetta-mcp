@@ -50,6 +50,10 @@ These are our own choices for the local server, not rules imposed by the source;
 requires citing it and stating that texts are non-authentic and free. Please keep these defaults
 respectful of the source. See [docs/fonti.md](docs/fonti.md).
 
+The optional [archive](#archive-optional-advanced) is a separate tool, run on purpose by whoever
+operates it: it fills slowly (1 request per second, never twice the same act) and is not part of
+the local server's default behaviour.
+
 ## Tools
 
 | Tool | Parameters | What it does |
@@ -163,6 +167,26 @@ All settings are environment variables, read in `src/gazzetta_mcp/config.py`.
 | `GAZZETTA_MCP_CACHE_PATH` | `<cache dir>/gazzetta-mcp/cache.sqlite3` | SQLite cache file (`LOCALAPPDATA`, else `XDG_CACHE_HOME`, else `~/.cache`) |
 | `GAZZETTA_MCP_FEED_TTL` | `900` | Feed cache lifetime in seconds |
 | `GAZZETTA_MCP_USER_AGENT` | `gazzetta-mcp/<version> (unofficial open source client)` | User-Agent sent with requests |
+| `GAZZETTA_MCP_ARCHIVIO_PATH` | `<cache dir>/gazzetta-mcp/archivio.sqlite3` | Archive file, read only if it exists (see [Archive](#archive-optional-advanced)) |
+| `GAZZETTA_MCP_ARCHIVIO_URL` | empty (off) | Address of a remote archive service (`https://`, or `http://localhost`); when set, your searches and the codes of the acts you open are sent to that service |
+| `GAZZETTA_MCP_ARCHIVIO_REMOTO_TIMEOUT` | `8` | Timeout in seconds for the remote archive (0-60) |
+
+## Archive (optional, advanced)
+
+Not needed to use the tools above. The archive is a single SQLite file with copies of already
+public acts (Gazzetta Ufficiale and Normattiva), searchable offline and filled slowly in the
+background.
+
+- If the file `archivio.sqlite3` exists, the local server reads it after its cache and before the
+  Gazzetta site. If it does not exist, nothing changes. Normattiva data: CC BY 4.0.
+- Fill and manage it with `python -m gazzetta_mcp.archivio` (`aggiorna`, `recupera`, `controlla`,
+  `stato`, `rimuovi`, `rimossi`). The automatic update takes only the Serie Generale by default.
+- `rimuovi CODE --motivo richiesta-interessato --si` deletes an act for good and keeps it from
+  coming back.
+- A read-only service for the network is `python -m gazzetta_mcp.archivio.remoto` (see
+  [deploy/](deploy/README.md) for a step by step guide to a small Linux server). No public service
+  exists yet; the privacy notice is still a draft ([docs/privacy/](docs/privacy/informativa.md)).
+- The decisions behind it: [docs/decisioni/090-archivio-remoto.md](docs/decisioni/090-archivio-remoto.md).
 
 ## Troubleshooting
 
@@ -254,6 +278,10 @@ fonte e il link ufficiale: verifica sempre il testo ufficiale prima di farci aff
 Sono scelte nostre per il server locale, non regole imposte dalla fonte, che chiede solo di citarla
 e di dichiarare il carattere non autentico e gratuito dei testi. Vedi [docs/fonti.md](docs/fonti.md).
 
+L'[archivio](#archivio-facoltativo) è invece uno strumento a parte, che lancia di proposito chi lo
+gestisce: si riempie lentamente (1 richiesta al secondo, mai due volte lo stesso atto) e non fa
+parte del comportamento normale del server locale.
+
 ### Strumenti
 
 | Strumento | Parametri | Cosa fa |
@@ -322,6 +350,23 @@ uvx --from git+https://github.com/GiovannaFilippini/gazzetta-mcp gazzetta-mcp
 
 Le variabili d'ambiente `GAZZETTA_MCP_*` sono descritte nella tabella
 [Configuration](#configuration) più sopra (in inglese).
+
+### Archivio (facoltativo)
+
+Non serve per usare gli strumenti qui sopra. È un unico file SQLite con copie di atti già
+pubblici (Gazzetta Ufficiale e Normattiva), che si cercano anche senza collegamento e che si
+riempie lentamente in sottofondo.
+
+- Se il file `archivio.sqlite3` esiste, il server locale lo legge dopo la cache e prima del sito
+  della Gazzetta. Se non esiste, non cambia nulla. Dati di Normattiva: CC BY 4.0.
+- Si riempie e si gestisce con `python -m gazzetta_mcp.archivio` (`aggiorna`, `recupera`,
+  `controlla`, `stato`, `rimuovi`, `rimossi`). L'aggiornamento automatico prende per predefinito
+  solo la Serie Generale.
+- `rimuovi CODICE --motivo richiesta-interessato --si` cancella un atto e impedisce che ritorni.
+- Il servizio di sola lettura per la rete è `python -m gazzetta_mcp.archivio.remoto` (guida passo
+  passo per un piccolo server Linux in [deploy/](deploy/README.md)). Un servizio pubblico non
+  esiste ancora e l'informativa privacy è una bozza ([docs/privacy/](docs/privacy/informativa.md)).
+- Le decisioni: [docs/decisioni/090-archivio-remoto.md](docs/decisioni/090-archivio-remoto.md).
 
 ### Se qualcosa non funziona
 
