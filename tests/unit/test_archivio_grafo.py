@@ -264,3 +264,26 @@ def test_storico_resolves_urn_endpoints_to_archived_codes(store):
 
 def test_storico_unknown_act_is_empty(store):
     assert storico(store, "nope") == []
+
+
+def test_short_and_full_citations_of_one_act_are_a_single_node():
+    from gazzetta_mcp.archivio.grafo import archi_citazioni
+
+    testo = (
+        "Visto il decreto legislativo 30 marzo 2001, n. 165, recante norme generali; "
+        "ai sensi dell'art. 19, comma 4, del decreto legislativo n. 165/2001, e' conferito."
+    )
+    archi = archi_citazioni("26A00001", testo)
+    assert [a.a for a in archi] == ["urn:nir:stato:decreto.legislativo:2001-03-30;165"]
+
+
+def test_short_citation_alone_is_kept_and_own_act_is_excluded_in_any_form():
+    from gazzetta_mcp.archivio.grafo import archi_citazioni
+
+    testo = "ai sensi del decreto legislativo n. 219/2006 e della legge 7 agosto 1990, n. 241"
+    urns = [a.a for a in archi_citazioni("X1", testo)]
+    assert "urn:nir:stato:decreto.legislativo:2006;219" in urns
+    escluso = archi_citazioni(
+        "X1", testo, escludi=["urn:nir:stato:decreto.legislativo:2006-04-24;219"]
+    )
+    assert all("219" not in a.a for a in escluso)

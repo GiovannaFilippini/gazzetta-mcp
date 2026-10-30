@@ -88,6 +88,16 @@ def _normalizza(testo: str) -> str:
     return re.sub(r"\s+", " ", testo).strip()
 
 
+_URN_PIENO_RE = re.compile(r"^urn:nir:stato:[^:]+:\d{4}-\d{2}-\d{2};\w+")
+_URN_ATTO_RE = re.compile(r"^(urn:nir:stato:[^:]+:)(\d{4})(?:-\d{2}-\d{2})?;(.+)$")
+
+
+def _chiave_atto(urn: str) -> tuple[str, str, str] | str:
+    """Same act, whatever the form of its URN: (type, year, number); other strings as they are."""
+    m = _URN_ATTO_RE.match(urn)
+    return m.groups() if m else urn
+
+
 def urn_da_citazione(citazione: str) -> str | None:
     """URN of a citation such as ``legge 7 agosto 1990, n. 241``, or None if not computable."""
     try:
@@ -142,11 +152,21 @@ def archi_citazioni(codice: str, testo: str, *, escludi: Iterable[str] = ()) -> 
     do not know (regional laws, EU acts), incomplete citations ("la legge n. 241 del 1990"),
     and the verbs around the citation (an "abrogato" is not guessed from prose).
     """
-    saltare = set(escludi)
-    visti: dict[str, None] = {}
+    saltare = {_chiave_atto(u) for u in escludi}
+    trovati: list[str] = []
     for m in _CITAZIONE_RE.finditer(_normalizza(testo)):
         urn = urn_da_citazione(m.group(0))
-        if urn and urn not in saltare:
+        if urn:
+            trovati.append(urn)
+        if len(trovati) >= 4 * MAX_CITAZIONI:
+            break
+    # "decreto legislativo n. 165/2001" gives a year-only URN: when the same act is also cited
+    # with its full date in this text, use the full one so the act is a single node.
+    pieni = {_chiave_atto(u): u for u in trovati if _URN_PIENO_RE.match(u)}
+    visti: dict[str, None] = {}
+    for urn in trovati:
+        urn = pieni.get(_chiave_atto(urn), urn)
+        if _chiave_atto(urn) not in saltare:
             visti.setdefault(urn)
         if len(visti) >= MAX_CITAZIONI:
             break
