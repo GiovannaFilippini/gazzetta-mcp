@@ -1,0 +1,107 @@
+from __future__ import annotations
+
+from datetime import date
+
+import pytest
+
+from gazzetta_mcp.archivio import ArchiveStore, Arco
+from gazzetta_mcp.models import Atto, SearchFilters, Serie
+
+
+def _atto(codice: str = "26A00001", titolo: str = "Decreto sugli appalti pubblici") -> Atto:
+    return Atto(
+        codice=codice,
+        serie=Serie.SG,
+        data=date(2026, 1, 5),
+        titolo=titolo,
+        emettitore="Ministero",
+        tipo="decreto",
+        testo="Testo dell'atto sugli acquisti della scuola.",
+        link=f"https://example.test/{codice}",
+        numero_gu=3,
+    )
+
+
+@pytest.fixture
+def store():
+    with ArchiveStore(":memory:") as s:
+        yield s
+
+
+def test_put_atto_is_immutable(store):
+    assert store.put_atto(_atto(), fonte="gu") is True
+    assert store.put_atto(_atto(titolo="Cambiato"), fonte="normattiva") is False
+    assert store.get_atto("26A00001").titolo == "Decreto sugli appalti pubblici"
+    assert store.count_atti() == 1
+
+
+def test_put_atto_rejects_unknown_source(store):
+    with pytest.raises(ValueError):
+        store.put_atto(_atto(), fonte="altro")
+
+
+def test_search_finds_by_stem_and_filters(store):
+    store.put_atto(_atto(), fonte="gu")
+    hits = store.search("acquisto scuola", SearchFilters())
+    assert [h.codice for h in hits] == ["26A00001"]
+    assert hits[0].origine == "archivio"
+    assert store.search("acquisto", SearchFilters(dal=date(2027, 1, 1))) == []
+    assert store.search("acquisto", SearchFilters(serie=Serie.S4)) == []
+
+
+def test_urn_links_the_two_sources(store):
+    store.put_atto(_atto(), fonte="gu")
+    assert store.codice_da_urn("urn:x") is None
+    store.set_urn("26A00001", "urn:x")
+    assert store.codice_da_urn("urn:x") == "26A00001"
+
+
+def test_queue_goes_backward_and_retries_errors(store):
+    store.aggiungi_numeri([(Serie.SG, date(2026, 1, d), None) for d in (3, 4, 5)])
+    assert store.aggiungi_numeri([(Serie.SG, date(2026, 1, 5), 7)]) == 0
+    todo = store.prossimi_numeri(Serie.SG, 10)
+    assert [n.data.day for n in todo] == [5, 4, 3]
+    assert todo[0].numero == 7  # a missing number is filled in later
+    store.segna_numero(Serie.SG, date(2026, 1, 5), "fatto")
+    store.segna_numero(Serie.SG, date(2026, 1, 4), "errore", "429")
+    todo = store.prossimi_numeri(Serie.SG, 10)
+    assert [(n.data.day, n.tentativi) for n in todo] == [(4, 1), (3, 0)]
+    assert store.prossimi_numeri(Serie.SG, 10, max_tentativi=1) == [
+        n for n in todo if n.data.day == 3
+    ]
+    assert store.conteggio_numeri(Serie.SG) == {"fatto": 1, "errore": 1, "da_fare": 1}
+
+
+def test_segna_numero_rejects_unknown_state(store):
+    with pytest.raises(ValueError):
+        store.segna_numero(Serie.SG, date(2026, 1, 1), "boh")
+
+
+def test_archi_are_deduplicated_and_directional(store):
+    a = Arco("A", "B", "modifica", "normattiva")
+    assert store.put_archi([a, a, Arco("C", "B", "abroga", "gu")]) == 2
+    assert store.archi_di("A") == [a]
+    assert {x.da for x in store.archi_di("B", uscenti=False)} == {"A", "C"}
+    with pytest.raises(ValueError):
+        store.put_archi([Arco("A", "B", "inventato", "gu")])
+
+
+def test_read_is_read_only(store):
+    with pytest.raises(ValueError):
+        store.read("DELETE FROM atti")
+    assert store.read("SELECT COUNT(*) AS n FROM atti")[0]["n"] == 0
+
+
+def test_stato_notes_are_overwritten(store):
+    assert store.get_stato("k") is None
+    store.set_stato("k", "1")
+    store.set_stato("k", "2")
+    assert store.get_stato("k") == "2"
+
+
+def test_schema_persists_on_disk(tmp_path):
+    path = tmp_path / "sub" / "archivio.sqlite3"
+    with ArchiveStore(path) as s:
+        s.put_atto(_atto(), fonte="gu")
+    with ArchiveStore(path) as s:
+        assert s.has_atto("26A00001")

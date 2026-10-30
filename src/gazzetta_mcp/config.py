@@ -41,6 +41,10 @@ class Settings:
     timeout_seconds: float = 20.0
     cache_path: Path = field(default_factory=_default_cache_path)
     cache_ttl_feed_seconds: int = 900
+    # Central archive (step 2, decision 090): its own SQLite file, separate from the cache.
+    archivio_path: Path = field(
+        default_factory=lambda: _default_cache_path().with_name("archivio.sqlite3")
+    )
     user_agent: str = f"gazzetta-mcp/{__version__} (unofficial open source client)"
 
     @classmethod
@@ -66,6 +70,7 @@ class Settings:
             requests_per_second=float(env("GAZZETTA_MCP_RPS", d.requests_per_second)),
             timeout_seconds=float(env("GAZZETTA_MCP_TIMEOUT", d.timeout_seconds)),
             cache_path=Path(env("GAZZETTA_MCP_CACHE_PATH", str(d.cache_path))),
+            archivio_path=Path(env("GAZZETTA_MCP_ARCHIVIO_PATH", str(d.archivio_path))),
             cache_ttl_feed_seconds=int(env("GAZZETTA_MCP_FEED_TTL", d.cache_ttl_feed_seconds)),
             user_agent=env("GAZZETTA_MCP_USER_AGENT", d.user_agent),
         )
