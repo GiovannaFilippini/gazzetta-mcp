@@ -1,0 +1,14 @@
+# Ogni giorno alle 05:30 (ora del server), con un ritardo casuale fino a 15 minuti.
+# Se il server era spento a quell'ora, parte appena si riaccende (Persistent).
+# Orario del server: vedi "timedatectl" (di solito UTC). Cambialo se vuoi un'altra ora.
+
+[Unit]
+Description=Archivio Gazzetta Ufficiale - aggiornamento giornaliero (orario)
+
+[Timer]
+OnCalendar=*-*-* 05:30:00
+RandomizedDelaySec=900
+Persistent=true
+
+[Install]
+WantedBy=timers.target

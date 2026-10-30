@@ -1,0 +1,50 @@
+# Aggiornamento giornaliero: numeri nuovi della Gazzetta e aggiornamenti di Normattiva.
+# (python -m gazzetta_mcp.archivio aggiorna). Lo avvia gazzetta-aggiorna.timer.
+# Copia in /etc/systemd/system/.
+
+[Unit]
+Description=Archivio Gazzetta Ufficiale - aggiornamento giornaliero
+After=network-online.target
+Wants=network-online.target
+OnFailure=gazzetta-avviso@%n.service
+
+[Service]
+Type=oneshot
+User=gazzetta
+Group=gazzetta-dati
+UMask=0007
+EnvironmentFile=/etc/gazzetta-archivio/variabili.env
+# flock: un solo lavoro alla volta sull'archivio (aggiorna e recupera condividono lo stesso
+# lucchetto). Se ne sta girando un altro, aspetta fino a 2 ore invece di sovrapporsi.
+ExecStart=/usr/bin/flock -w 7200 /var/lib/gazzetta-archivio/.lavori.lock \
+    /opt/gazzetta-mcp/venv/bin/python -m gazzetta_mcp.archivio aggiorna
+RuntimeMaxSec=4h
+Nice=10
+IOSchedulingClass=idle
+
+MemoryHigh=700M
+MemoryMax=1G
+TasksMax=100
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallFilter=@system-service
+SystemCallArchitectures=native
+ReadWritePaths=/var/lib/gazzetta-archivio
+InaccessiblePaths=/root /home /var/backups

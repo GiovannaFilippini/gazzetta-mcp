@@ -1,0 +1,70 @@
+# Servizio MCP in sola lettura (python -m gazzetta_mcp.archivio.remoto).
+# Ascolta solo su 127.0.0.1:8080: dal mondo si arriva soltanto passando da Caddy (TLS).
+# Copia in /etc/systemd/system/.
+
+[Unit]
+Description=Archivio Gazzetta Ufficiale - servizio MCP in sola lettura
+After=network-online.target
+Wants=network-online.target
+# Il file dell'archivio deve esistere (lo crea la prima esecuzione di "aggiorna", vedi README).
+ConditionPathExists=/var/lib/gazzetta-archivio/archivio.sqlite3
+StartLimitIntervalSec=300
+StartLimitBurst=5
+OnFailure=gazzetta-avviso@%n.service
+
+[Service]
+Type=simple
+User=gazzetta-web
+Group=gazzetta-dati
+# Stessa maschera di tutti gli altri lavori: i file creati sono leggibili e scrivibili dal
+# gruppo gazzetta-dati (vedi README, "Perche' due utenti e un gruppo").
+UMask=0007
+EnvironmentFile=/etc/gazzetta-archivio/variabili.env
+ExecStart=/opt/gazzetta-mcp/venv/bin/python -m gazzetta_mcp.archivio.remoto \
+    --host 127.0.0.1 --port 8080 \
+    --archivio /var/lib/gazzetta-archivio/archivio.sqlite3 \
+    --trust-proxy
+# Per cambiare il limite per IP aggiungi in coda, per esempio: --limite-minuto 30 --raffica 10
+# (sono i valori predefiniti del codice).
+Restart=on-failure
+RestartSec=5
+
+# Limiti di risorse: il servizio e' piccolo, se supera questi valori e' un problema.
+MemoryHigh=400M
+MemoryMax=512M
+TasksMax=200
+
+# Isolamento.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallFilter=@system-service
+SystemCallArchitectures=native
+
+# Il servizio apre il file in sola lettura (SQLite mode=ro), ma con la modalita' WAL
+# anche chi legge deve poter scrivere i file di appoggio "-shm" e "-wal" nella stessa
+# cartella. Per questo la cartella dati e' scrivibile qui: la protezione vera e' che il
+# codice apre il database in sola lettura e che questo utente non puo' toccare altro.
+# Vedi README, "Perche' due utenti e un gruppo".
+ReadWritePaths=/var/lib/gazzetta-archivio
+# Tutto il resto del disco e' in sola lettura (ProtectSystem=strict); in piu' le cartelle
+# personali e le copie di sicurezza non sono nemmeno visibili a questo servizio:
+InaccessiblePaths=/root /home /var/backups
+
+[Install]
+WantedBy=multi-user.target

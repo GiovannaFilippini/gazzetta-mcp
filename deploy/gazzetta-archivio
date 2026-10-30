@@ -1,0 +1,17 @@
+#!/bin/sh
+# Comodo per le operazioni a mano: esegue "python -m gazzetta_mcp.archivio <comando>" come utente
+# "gazzetta", con le stesse variabili e gli stessi permessi dei lavori automatici.
+# Installato come /usr/local/bin/gazzetta-archivio. Esempi:
+#   sudo gazzetta-archivio stato
+#   sudo gazzetta-archivio aggiorna
+#   sudo gazzetta-archivio recupera --serie SG
+# (il comando "rimuovi" per cancellare dati su richiesta e' previsto, vedi README)
+
+set -eu
+set -a
+# shellcheck disable=SC1091
+. /etc/gazzetta-archivio/variabili.env
+set +a
+umask 0007
+exec /usr/bin/flock -w 3600 /var/lib/gazzetta-archivio/.lavori.lock \
+    runuser -u gazzetta -- /opt/gazzetta-mcp/venv/bin/python -m gazzetta_mcp.archivio "$@"

@@ -1,0 +1,15 @@
+# Recupero all'indietro: ogni ora dalle 00:20 alle 04:20 (ora del server), cioe' di notte,
+# quando c'e' poco traffico. Un'ora e' piu' che sufficiente per un lotto di 20 numeri.
+# Il recupero dell'archivio storico richiede settimane: e' normale.
+# Non c'e' Persistent: se il server era spento si riprende alla prossima ora utile.
+# Attenzione: l'aggiornamento giornaliero parte alle 05:30, dopo l'ultima corsa.
+
+[Unit]
+Description=Archivio Gazzetta Ufficiale - recupero all'indietro, serie %I (orario)
+
+[Timer]
+OnCalendar=*-*-* 00..04:20:00
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

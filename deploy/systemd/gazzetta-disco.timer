@@ -1,0 +1,11 @@
+# Ogni giorno alle 08:00 (ora del server).
+
+[Unit]
+Description=Archivio Gazzetta Ufficiale - controllo spazio su disco (orario)
+
+[Timer]
+OnCalendar=*-*-* 08:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

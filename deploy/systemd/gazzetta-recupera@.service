@@ -1,0 +1,58 @@
+# Recupero all'indietro dell'archivio, a lotti limitati e riprendibili
+# (python -m gazzetta_mcp.archivio recupera --serie <SERIE>).
+# E' un modello ("@"): il nome dopo la @ e' la serie. Si attiva con
+#   systemctl enable --now gazzetta-recupera@SG.timer
+# Serie ammesse (dal codice): SG, S1, S2, S3, S4, S5, P2. Si comincia con SG.
+# Copia in /etc/systemd/system/.
+
+[Unit]
+Description=Archivio Gazzetta Ufficiale - recupero all'indietro, serie %I
+After=network-online.target
+Wants=network-online.target
+OnFailure=gazzetta-avviso@%n.service
+
+[Service]
+Type=oneshot
+User=gazzetta
+Group=gazzetta-dati
+UMask=0007
+EnvironmentFile=/etc/gazzetta-archivio/variabili.env
+# Lotto: 20 numeri della Gazzetta e 200 atti di Normattiva per corsa (i valori predefiniti).
+# Per andare piu' veloci, dopo aver visto che tutto funziona, aggiungi per esempio
+# "--max-numeri 40 --max-atti 400" in fondo alla riga: restano comunque 1 richiesta al secondo.
+# Lo stesso lucchetto di "aggiorna": le corse non si sovrappongono. Se il lucchetto resta
+# occupato per 10 minuti questa corsa viene saltata in silenzio (-E 0: non e' un errore,
+# alla prossima ora si riprova; il recupero e' riprendibile e non perde nulla).
+ExecStart=/usr/bin/flock -w 600 -E 0 /var/lib/gazzetta-archivio/.lavori.lock \
+    /opt/gazzetta-mcp/venv/bin/python -m gazzetta_mcp.archivio recupera --serie %I \
+    --max-numeri 20 --max-atti 200
+RuntimeMaxSec=3h
+Nice=15
+IOSchedulingClass=idle
+
+MemoryHigh=700M
+MemoryMax=1G
+TasksMax=100
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallFilter=@system-service
+SystemCallArchitectures=native
+ReadWritePaths=/var/lib/gazzetta-archivio
+InaccessiblePaths=/root /home /var/backups
