@@ -206,7 +206,7 @@ async def test_acquisisci_keeps_title_when_the_article_is_missing(store):
         client, store, date(2026, 10, 1), date(2026, 10, 7), max_atti=1, sleep=_sleep
     )
     atto = store.get_atto("26G00185")
-    assert atto is not None and atto.testo == ""
+    assert atto is not None and atto.testo == atto.titolo != ""
 
 
 async def test_acquisisci_backs_off_then_stops_on_http_errors(store):
