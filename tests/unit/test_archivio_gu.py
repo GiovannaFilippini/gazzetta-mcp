@@ -161,8 +161,8 @@ async def test_acquisisci_numero_resumes_after_an_interruption(client, store):
         await acquisisci_numero(client, GuParser(), store, voce())
     assert store.count_atti() == 4  # saved so far, kept
     row = stato(store)
-    # a network problem says nothing about the issue: back in the queue, attempt not counted
-    assert (row["stato"], row["tentativi"]) == ("da_fare", 0)
+    # a network problem: the attempt is counted, so a poison issue is dropped after a few runs
+    assert (row["stato"], row["tentativi"]) == ("errore", 1)
     assert "503" in row["ultimo_errore"]
 
     client.calls.clear()
@@ -318,7 +318,7 @@ async def test_recupera_indietro_backs_off_exponentially_then_stops(client, stor
     assert esito.numeri_elaborati == 0 and esito.attesa_totale == 70
     assert "429" in (esito.motivo or "")
     assert client.count("sommario") == 4  # 1 try + 3 retries, only the newest issue is touched
-    assert store.conteggio_numeri(Serie.SG) == {"da_fare": 3}  # nothing lost, nothing burned
+    assert store.conteggio_numeri(Serie.SG) == {"da_fare": 2, "errore": 1}  # one attempt counted
     assert store.get_stato("gu.SG.ultimo_stop") is not None
 
 
