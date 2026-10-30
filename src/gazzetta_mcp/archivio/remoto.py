@@ -11,12 +11,18 @@ Personal data: the archive holds public texts that may contain personal data, so
 asks search engines not to index it (``/robots.txt``) and never logs the content of a query.
 ``--serie SG`` restricts the public service to the listed series (scope A of the GDPR
 assessment): acts of any other series are never returned, counted or hinted at.
+
+One option changes this: ``--riempi`` (off by default) lets ``leggi_atto_archivio`` fetch an act
+that is not archived from the Gazzetta Ufficiale and archive it (see ``riempimento``). It is the
+only write path and uses a second connection; reads stay on the read-only one.
 """
 
 from __future__ import annotations
 
 import argparse
+import asyncio
 import functools
+import ipaddress
 import logging
 import math
 import os
@@ -24,14 +30,15 @@ import sqlite3
 import threading
 import time
 from collections import OrderedDict
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import replace
 from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
+from fastmcp.server.dependencies import get_http_request
 from starlette.requests import Request
 from starlette.responses import PlainTextResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -41,6 +48,9 @@ from ..cache.sqlite import build_match_query
 from ..models import DISCLAIMER, SearchFilters, SearchHit, Serie
 from . import grafo
 from .store import MAX_PAROLE_RICERCA, SCHEMA_VERSION, ArchiveError, ArchiveStore
+
+if TYPE_CHECKING:
+    from .riempimento import Riempitore
 
 log = logging.getLogger("gazzetta_mcp.remoto")
 
@@ -62,6 +72,9 @@ MAX_IP_TRACCIATI = 10000
 
 LIMITE_MINUTO_DEFAULT = 30
 RAFFICA_DEFAULT = 10
+RIEMPI_IP_ORA_DEFAULT = 5  # fills on request per IP per hour (--riempi)
+RIEMPI_ORA_DEFAULT = 60  # fills on request per hour, whole service
+RIEMPI_CODA_DEFAULT = 20
 
 INSTRUCTIONS = (
     "Archivio centrale NON ufficiale della Gazzetta Ufficiale italiana e di Normattiva, in sola "
@@ -193,6 +206,27 @@ class TokenBucket:
             wait = 0.0 if ok else (1.0 - tokens) / self._rate
         return ok, wait
 
+    def rimborsa(self, key: str) -> None:
+        """Give back one token (an operation that cost nothing after all)."""
+        with self._lock:
+            if key in self._buckets:
+                tokens, last = self._buckets[key]
+                self._buckets[key] = (min(self._burst, tokens + 1.0), last)
+
+
+def _normalizza_ip(testo: str) -> str:
+    """One bucket per IPv6 /64 (a single user holds billions of addresses); IPv4-mapped IPv6
+    addresses count as IPv4. Anything that is not an address is returned as it is."""
+    try:
+        ip = ipaddress.ip_address(testo)
+    except ValueError:
+        return testo
+    if isinstance(ip, ipaddress.IPv6Address):
+        if ip.ipv4_mapped is not None:
+            return str(ip.ipv4_mapped)
+        return str(ipaddress.ip_network(f"{ip}/64", strict=False))
+    return str(ip)
+
 
 def ip_cliente(scope: Scope, *, trust_proxy: bool) -> str:
     """Client IP from the socket; from ``X-Forwarded-For`` only if the proxy is trusted.
@@ -209,9 +243,9 @@ def ip_cliente(scope: Scope, *, trust_proxy: bool) -> str:
                 if parts:
                     ultimo = parts[-1]
         if ultimo:
-            return ultimo[:64]
+            return _normalizza_ip(ultimo[:64])
     client = scope.get("client")
-    return client[0] if client else "sconosciuto"
+    return _normalizza_ip(client[0]) if client else "sconosciuto"
 
 
 class LimiteRichieste:
@@ -352,12 +386,25 @@ def parse_serie(valore: str) -> list[Serie]:
     return out
 
 
+def _ip_richiesta(trust_proxy: bool) -> str:
+    """Client address of the HTTP request being served ("sconosciuto" outside of one)."""
+    try:
+        return ip_cliente(get_http_request().scope, trust_proxy=trust_proxy)
+    except RuntimeError:
+        return "sconosciuto"
+
+
 def create_server(
-    store: ArchivioSolaLettura, serie_consentite: Sequence[Serie] | None = None
+    store: ArchivioSolaLettura,
+    serie_consentite: Sequence[Serie] | None = None,
+    riempitore: Riempitore | None = None,
+    trust_proxy: bool = False,
 ) -> FastMCP:
-    """Build the FastMCP app serving ``store``. All tools are read-only.
+    """Build the FastMCP app serving ``store``. All tools read from the read-only ``store``.
 
     ``serie_consentite`` limits every tool to those series (``None`` = all of them).
+    ``riempitore`` (``--riempi``, off by default) lets ``leggi_atto_archivio`` fetch and archive
+    an act that is missing; it owns its own write connection.
     """
     mcp = FastMCP(NAME, instructions=INSTRUCTIONS, version=__version__, mask_error_details=True)
     max_chars = _max_chars()
@@ -378,6 +425,23 @@ def create_server(
         def wrapper(*args: Any, **kwargs: Any) -> dict[str, Any]:
             try:
                 return fn(*args, **kwargs)
+            except ToolError:
+                raise
+            except Exception:  # never leak details or a stack trace to the client
+                log.exception("Errore imprevisto in %s", fn.__name__)  # no query content logged
+                raise ToolError(
+                    "Errore interno imprevisto dell'archivio: riprova piu' tardi."
+                ) from None
+
+        return wrapper
+
+    def guarded_async(
+        fn: Callable[..., Awaitable[dict[str, Any]]],
+    ) -> Callable[..., Awaitable[dict[str, Any]]]:
+        @functools.wraps(fn)
+        async def wrapper(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            try:
+                return await fn(*args, **kwargs)
             except ToolError:
                 raise
             except Exception:  # never leak details or a stack trace to the client
@@ -458,19 +522,38 @@ def create_server(
         }
         return out | _avvisi([r["fonte"] for r in risultati])
 
-    @mcp.tool(annotations={"readOnlyHint": True, "idempotentHint": True})
-    @guarded
-    def leggi_atto_archivio(codice: str, offset: int = 0) -> dict[str, Any]:
+    @mcp.tool(annotations={"readOnlyHint": riempitore is None, "idempotentHint": True})
+    @guarded_async
+    async def leggi_atto_archivio(
+        codice: str, offset: int = 0, data: str | None = None, serie: str | None = None
+    ) -> dict[str, Any]:
         """Legge il testo di un atto dell'archivio, a pezzi.
 
         Usalo con un codice (es. 26A05182) preso dai risultati di cerca_archivio. I testi
         lunghi sono divisi: per continuare richiama con offset uguale al 'prossimo_offset'
         della risposta precedente (e' vuoto quando il testo e' finito). Funziona solo per gli
-        atti archiviati con il testo completo; per gli altri vedi il link ufficiale.
+        atti archiviati con il testo completo; per gli altri vedi il link ufficiale. Se
+        l'atto non e' ancora archiviato il servizio puo' prenderlo dalla Gazzetta Ufficiale
+        (se questa funzione e' attiva): data (AAAA-MM-GG) e serie sono facoltative.
         """
         cod = _codice(codice)
         offset = max(0, int(offset))
         atto = store.get_atto(cod)
+        if atto is None and riempitore is not None:
+            data_val = _data(data, "La data")
+            serie_txt = _testo(serie, "La serie", MAX_CAMPO)
+            serie_val = None
+            if serie_txt is not None:
+                try:
+                    serie_val = Serie(serie_txt.upper())
+                except ValueError:
+                    raise ToolError("Serie non valida: usa SG, S1, S2, S3, S4, S5 o P2.") from None
+            esito = await riempitore.riempi(
+                cod, ip=_ip_richiesta(trust_proxy), serie=serie_val, data=data_val
+            )
+            if esito.stato in ("riprova", "limite"):
+                raise ToolError(esito.messaggio)
+            atto = store.get_atto(cod) if esito.stato == "ok" else None  # read-only connection
         if atto is None or not permessa(atto.serie):  # excluded acts look like missing ones
             raise ToolError(
                 "Atto non presente nell'archivio: controlla il codice o usa la ricerca."
@@ -624,9 +707,10 @@ def create_app(
     trust_proxy: bool = False,
     clock: Callable[[], float] = time.monotonic,
     serie_consentite: Sequence[Serie] | None = None,
+    riempitore: Riempitore | None = None,
 ) -> Any:
     """ASGI app: the MCP endpoint at ``/mcp`` behind the per-IP limit."""
-    mcp = create_server(store, serie_consentite)
+    mcp = create_server(store, serie_consentite, riempitore, trust_proxy)
     app = mcp.http_app(path="/mcp", stateless_http=True)
     bucket = TokenBucket(limite_minuto, raffica, clock=clock)
     app.add_middleware(LimiteRichieste, bucket=bucket, trust_proxy=trust_proxy)
@@ -639,7 +723,7 @@ def create_app(
 def _parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="python -m gazzetta_mcp.archivio.remoto",
-        description="Servizio MCP remoto in sola lettura sull'archivio centrale.",
+        description="Servizio MCP remoto sull'archivio centrale (letture in sola lettura).",
     )
     p.add_argument("--host", default="127.0.0.1", help="indirizzo di ascolto (default 127.0.0.1)")
     p.add_argument("--port", type=int, default=8080, help="porta (default 8080)")
@@ -667,7 +751,60 @@ def _parser() -> argparse.ArgumentParser:
         help="serie servite, separate da virgola (es. SG oppure SG,S1); se omessa, tutte. "
         "In produzione si consiglia SG.",
     )
+    p.add_argument(
+        "--riempi",
+        action="store_true",
+        help="ATTENZIONE, spento di default: un atto chiesto e non archiviato viene preso dalla "
+        "Gazzetta Ufficiale, archiviato e restituito. Richiede --serie e il permesso di "
+        "scrittura sul file dell'archivio",
+    )
+    p.add_argument(
+        "--riempi-ip-ora",
+        type=int,
+        default=RIEMPI_IP_ORA_DEFAULT,
+        help=f"atti nuovi recuperabili per IP in un'ora (default {RIEMPI_IP_ORA_DEFAULT})",
+    )
+    p.add_argument(
+        "--riempi-ora",
+        type=int,
+        default=RIEMPI_ORA_DEFAULT,
+        help=f"atti nuovi recuperabili in un'ora in tutto il servizio (default {RIEMPI_ORA_DEFAULT})",
+    )
+    p.add_argument(
+        "--riempi-coda",
+        type=int,
+        default=RIEMPI_CODA_DEFAULT,
+        help=f"atti al massimo in attesa di essere recuperati (default {RIEMPI_CODA_DEFAULT})",
+    )
     return p
+
+
+def _crea_riempitore(args: argparse.Namespace, serie: Sequence[Serie]) -> Riempitore:
+    # The client libraries log every URL at INFO: it would put the codes asked for in the logs.
+    for nome in ("httpx", "httpcore"):
+        logging.getLogger(nome).setLevel(logging.WARNING)
+    """The fill-on-request machinery: its own write connection and the one source client."""
+    from ..config import Settings
+    from ..parsing import GuParser
+    from ..sources.gu import GuClient
+    from ..sources.ratelimit import RateLimiter
+    from .riempimento import Riempitore
+
+    settings = Settings.from_env()
+    rps = min(settings.requests_per_second, 1.0)  # never faster than 1 request/second
+    settings = replace(settings, requests_per_second=rps)
+    scrittore = ArchiveStore(args.archivio)  # the only read-write connection of the service
+    client = GuClient(settings, limiter=RateLimiter(rps))
+    return Riempitore(
+        client,
+        GuParser(),
+        scrittore,
+        serie,
+        per_ip_ora=args.riempi_ip_ora,
+        globale_ora=args.riempi_ora,
+        max_coda=args.riempi_coda,
+        settings=settings,
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -684,11 +821,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         except ValueError as exc:
             print(f"Errore: --serie: {exc}.")
             return 2
+    if args.riempi:
+        if serie_consentite is None:
+            print("Errore: --riempi richiede --serie (per esempio --serie SG).")
+            return 2
+        if min(args.riempi_ip_ora, args.riempi_ora, args.riempi_coda) < 1:
+            print("Errore: i limiti di --riempi-* devono essere almeno 1.")
+            return 2
     try:
         store = ArchivioSolaLettura(args.archivio)
     except ArchiveError as exc:
         print(f"Errore: {exc}")
         return 1
+    riempitore = None
+    if args.riempi:
+        try:
+            riempitore = _crea_riempitore(args, serie_consentite or [])
+        except (ArchiveError, OSError) as exc:
+            store.close()
+            print(f"Errore: {exc}")
+            return 1
     try:
         app = create_app(
             store,
@@ -696,6 +848,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             raffica=args.raffica,
             trust_proxy=args.trust_proxy,
             serie_consentite=serie_consentite,
+            riempitore=riempitore,
         )
         # No access log: paths and client addresses are not needed, and query text never is.
         uvicorn.run(
@@ -708,6 +861,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     finally:
         store.close()
+        if riempitore is not None:
+            asyncio.run(riempitore.aclose())
     return 0
 
 

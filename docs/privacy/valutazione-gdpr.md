@@ -69,6 +69,8 @@ rimozione con blocco dei ritorni, avvertenza "non ufficiale" in ogni risposta, a
 dell'esperto. Si possono aggiungere serie in un secondo momento; togliere dati già diffusi è più
 difficile.
 
+**Riempimento su richiesta (`--riempi`, spento di default).** Se acceso, un utente anonimo fa archiviare atti chiedendoli: l'archivio cresce per richiesta e non solo per la nostra scelta. Va acceso solo con `--serie SG` (ambito A), perche' gli atti archiviati in questo modo restano nell'archivio e sono soggetti alla stessa procedura di rimozione. Non e' richiesto per aprire il servizio: si puo' tenere spento.
+
 ## 7. Da fare prima dell'apertura
 
 1. Decidere la scelta (titolare del progetto).
