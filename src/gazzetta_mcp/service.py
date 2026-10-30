@@ -379,8 +379,9 @@ class GazzettaService:
         if (atto is None or not atto.testo) and self._archivio_remoto is not None:
             remoto = await self._archivio_remoto.leggi_atto(codice)  # full text or None
             if remoto is not None:
+                # Not cached: the origin note must always show, and an act removed from the
+                # server must not stay on the device.
                 atto = replace(remoto, scaricato_il=self._now())
-                self._cache.put_atto(atto)
                 nota_origine = _NOTA_REMOTO
         if atto is None or not atto.testo:
             s, d, guessed = self._locate(codice, s_arg, d_arg)
