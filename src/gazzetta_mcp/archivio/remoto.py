@@ -36,7 +36,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from .. import __version__
 from ..models import DISCLAIMER, SearchFilters, Serie
 from . import grafo
-from .store import ArchiveError, ArchiveStore
+from .store import SCHEMA_VERSION, ArchiveError, ArchiveStore
 
 log = logging.getLogger("gazzetta_mcp.remoto")
 
@@ -90,8 +90,22 @@ class ArchivioSolaLettura(ArchiveStore):
             self._conn.row_factory = sqlite3.Row
             self._conn.execute("PRAGMA query_only = ON")
             self._conn.execute("SELECT COUNT(*) FROM atti").fetchone()  # is it our schema?
+            versione = self._conn.execute("PRAGMA user_version").fetchone()[0]
         except sqlite3.Error as exc:
             raise ArchiveError(f"Impossibile aprire l'archivio {file}: {exc}") from exc
+        if versione != SCHEMA_VERSION:
+            self._conn.close()
+            raise ArchiveError(
+                f"L'archivio {file} ha lo schema v{versione}, questa versione richiede la "
+                f"v{SCHEMA_VERSION}: aggiornalo con `python -m gazzetta_mcp.archivio stato`."
+            )
+
+    def read(self, sql: str, params: Sequence[object] = ()) -> list[sqlite3.Row]:
+        """Read-only query; unlike the parent it never switches ``query_only`` off."""
+        if not sql.lstrip().lower().startswith(("select", "with")):
+            raise ValueError("read() only accepts SELECT or WITH queries")
+        with self._lock:
+            return self._conn.execute(sql, params).fetchall()
 
     def ultimo_aggiornamento(self) -> str | None:
         rows = self.read("SELECT MAX(archiviato_il) AS ultimo FROM atti")
@@ -154,11 +168,15 @@ def ip_cliente(scope: Scope, *, trust_proxy: bool) -> str:
     earlier entries can be forged by the client.
     """
     if trust_proxy:
+        # Several header lines are the same list: the proxy's own entry is the last of the last.
+        ultimo = ""
         for name, value in scope.get("headers", []):
             if name == b"x-forwarded-for":
                 parts = [p.strip() for p in value.decode("latin-1").split(",") if p.strip()]
                 if parts:
-                    return parts[-1][:64]
+                    ultimo = parts[-1]
+        if ultimo:
+            return ultimo[:64]
     client = scope.get("client")
     return client[0] if client else "sconosciuto"
 

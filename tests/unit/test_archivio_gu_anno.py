@@ -49,14 +49,26 @@ def test_estimate_matches_the_real_numbers():
     assert _stima_numero(date(2024, 12, 31), S4_DAYS) == 104
 
 
-async def test_last_number_is_found_with_one_request_when_the_estimate_is_right(client, store):
+async def test_last_number_costs_two_requests_when_the_estimate_is_right(client, store):
     offer(client, Serie.SG, date(2025, 12, 31), 302)
     assert await ultimo_numero_anno(client, store, Serie.SG, 2025) == 302
-    assert client.count("sommario") == 1
+    assert client.count("sommario") == 2  # the anchor, and "is there a 303 that day?"
     assert store.get_stato("gu.SG.ultimo_numero_2025") == "302"
     # saved: no new request
     assert await ultimo_numero_anno(client, store, Serie.SG, 2025) == 302
-    assert client.count("sommario") == 1
+    assert client.count("sommario") == 2
+
+
+async def test_a_second_edition_on_the_same_day_is_found(client, store):
+    offer(client, Serie.SG, date(2025, 12, 31), 302)
+    offer(client, Serie.SG, date(2025, 12, 31), 303)
+    assert await ultimo_numero_anno(client, store, Serie.SG, 2025) == 303
+
+
+async def test_an_extra_edition_on_a_holiday_is_found(client, store):
+    offer(client, Serie.SG, date(2025, 12, 30), 301)
+    offer(client, Serie.SG, date(2025, 12, 31), 302)
+    assert await ultimo_numero_anno(client, store, Serie.SG, 2025) == 302
 
 
 async def test_last_number_for_s4_uses_the_last_tuesday_or_friday(client, store):

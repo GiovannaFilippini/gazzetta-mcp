@@ -153,3 +153,14 @@ def test_codici_da_urn_breve_matches_type_year_and_number(store):
     assert store.codici_da_urn_breve("decreto.legislativo", 2001, 165) == ["A"]
     assert store.codici_da_urn_breve("decreto.legislativo", "2001", "1650") == ["B"]
     assert store.codici_da_urn_breve("legge", 1999, 1) == []
+
+
+def test_search_is_fast_on_very_long_texts_and_caps_the_words(store):
+    import time
+
+    lungo = Atto(**{**_atto().__dict__, "codice": "26A09999", "testo": "pesca scuola " * 60_000})
+    store.put_atto(lungo, fonte="gu")
+    inizio = time.monotonic()
+    hits = store.search("pesca scuola " * 40 + "parolainesistente", SearchFilters())
+    assert hits and hits[0].estratto.endswith("...")
+    assert time.monotonic() - inizio < 3  # it took many seconds before the cut-offs

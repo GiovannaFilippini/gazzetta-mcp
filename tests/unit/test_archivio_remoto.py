@@ -304,3 +304,49 @@ async def test_non_http_scopes_pass_through():
 def test_cli_rejects_missing_archive(tmp_path, capsys):
     assert remoto.main(["--archivio", str(tmp_path / "no.sqlite")]) == 1
     assert "Errore" in capsys.readouterr().out
+
+
+def test_several_forwarded_for_lines_use_the_last_entry_of_the_last_line():
+    from gazzetta_mcp.archivio.remoto import ip_cliente
+
+    scope = {
+        "headers": [(b"x-forwarded-for", b"6.6.6.6, 7.7.7.7"), (b"x-forwarded-for", b"10.0.0.77")],
+        "client": ("1.2.3.4", 1),
+    }
+    assert ip_cliente(scope, trust_proxy=True) == "10.0.0.77"
+    assert ip_cliente(scope, trust_proxy=False) == "1.2.3.4"
+
+
+def test_read_only_store_stays_read_only_after_a_read(tmp_path):
+    import sqlite3
+
+    import pytest
+
+    from gazzetta_mcp.archivio import ArchiveStore
+    from gazzetta_mcp.archivio.remoto import ArchivioSolaLettura
+
+    path = tmp_path / "a.sqlite3"
+    ArchiveStore(path).close()
+    ro = ArchivioSolaLettura(path)
+    ro.read("SELECT 1")
+    assert ro._conn.execute("PRAGMA query_only").fetchone()[0] == 1
+    with pytest.raises(sqlite3.Error):
+        ro._conn.execute("CREATE TABLE x (a)")
+
+
+def test_an_archive_with_an_old_schema_is_refused_with_a_clear_message(tmp_path):
+    import sqlite3
+
+    import pytest
+
+    from gazzetta_mcp.archivio import ArchiveError
+    from gazzetta_mcp.archivio.remoto import ArchivioSolaLettura
+
+    path = tmp_path / "vecchio.sqlite3"
+    conn = sqlite3.connect(path)
+    conn.execute("CREATE TABLE atti (codice TEXT)")
+    conn.execute("PRAGMA user_version = 1")
+    conn.commit()
+    conn.close()
+    with pytest.raises(ArchiveError, match="schema v1"):
+        ArchivioSolaLettura(path)

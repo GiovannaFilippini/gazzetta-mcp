@@ -42,7 +42,7 @@ GIORNI_PUBBLICAZIONE: dict[Serie, frozenset[int]] = {
     Serie.S4: frozenset({1, 4}),  # Tuesday and Friday
 }
 MAX_SALTI_CONSECUTIVI = 3  # unexpected days without issue in a row before giving up
-MAX_SONDE_FINE_ANNO = 12  # requests allowed to find the last issue number of a year
+MAX_SONDE_FINE_ANNO = 20  # requests allowed to find the last issue number of a year
 MAX_GIORNI_FINE_ANNO = 4  # last publication days of December examined for that
 
 Sleep = Callable[[float], Awaitable[None]]
@@ -324,12 +324,17 @@ async def ultimo_numero_anno(
     if ancora is None:
         return None
     ultimo_giorno, ultimo = ancora
-    for giorno in reversed([d for d in giorni_fine if d > ultimo_giorno]):
+    # Anything after the anchor, on any calendar day (an extra edition can come on a Sunday or a
+    # holiday, or twice on the same day): keep asking for the next number until none exists.
+    giorno = ultimo_giorno
+    while giorno <= fine:
         esito = await esiste(giorno, ultimo + 1)
         if esito is None:
             return None  # cannot rule out a later issue: do not guess
         if esito:
             ultimo += 1
+            continue  # the same day may carry one more
+        giorno += timedelta(days=1)
     store.set_stato(chiave, str(ultimo))
     return ultimo
 

@@ -17,6 +17,8 @@ from ..cache.sqlite import build_match_query
 from ..models import Atto, SearchFilters, SearchHit, Serie
 from .tipi import ARCHI_TIPI, FONTI, Arco, NumeroDaFare
 
+MAX_TESTO_SNIPPET = 300_000  # characters: longer texts get no highlighted excerpt
+MAX_PAROLE_RICERCA = 12  # words of a search used; the rest is ignored
 STATI_NUMERO = ("da_fare", "fatto", "errore", "vuoto")  # "vuoto": issue exists but has no acts
 
 
@@ -81,6 +83,9 @@ _MIGRATIONS = [
     ALTER TABLE atti ADD COLUMN testo_completo INTEGER NOT NULL DEFAULT 1;
     """,
 ]
+
+
+SCHEMA_VERSION = len(_MIGRATIONS)  # the value of PRAGMA user_version of an up to date file
 
 
 def _now() -> str:
@@ -287,6 +292,7 @@ class ArchiveStore:
 
     def search(self, testo: str, filtri: SearchFilters) -> list[SearchHit]:
         """Full text search, same rules as the local cache. Hits have ``origine='archivio'``."""
+        testo = " ".join(testo.split()[:MAX_PAROLE_RICERCA])
         hits = self._search(build_match_query(testo), filtri)
         if not hits:
             hits = self._search(build_match_query(testo, any_word=True), filtri)
@@ -310,10 +316,11 @@ class ArchiveStore:
             where.append("a.data <= ?")
             params.append(filtri.al.isoformat())
         # Only constant fragments are interpolated below; every value is a bound parameter.
+        # Rank first, cut to the limit, and only then build the excerpts: snippet() is costly on
+        # long texts and would otherwise run for every candidate row.
         sql = f"""
-            SELECT a.codice, a.serie, a.data, a.titolo, a.link,
-                   bm25(atti_fts, 4.0, 1.0, 1.0) AS score,
-                   snippet(atti_fts, -1, '[', ']', '...', 24) AS snip
+            SELECT a.id, a.codice, a.serie, a.data, a.titolo, a.link, length(a.testo) AS lunghezza,
+                   bm25(atti_fts, 4.0, 1.0, 1.0) AS score
             FROM atti_fts JOIN atti a ON a.id = atti_fts.rowid
             WHERE {" AND ".join(where)}
             ORDER BY score, a.data DESC, a.codice LIMIT ?
@@ -321,19 +328,34 @@ class ArchiveStore:
         params.append(filtri.limite)
         with self._lock:
             rows = self._conn.execute(sql, params).fetchall()
+            estratti = {r["id"]: self._estratto(r["id"], match, r["lunghezza"]) for r in rows}
         return [
             SearchHit(
                 codice=r["codice"],
                 serie=Serie(r["serie"]),
                 data=date.fromisoformat(r["data"]),
                 titolo=r["titolo"],
-                estratto=r["snip"],
+                estratto=estratti[r["id"]],
                 link=r["link"],
                 punteggio=-float(r["score"]),
                 origine="archivio",
             )
             for r in rows
         ]
+
+    def _estratto(self, rowid: int, match: str, lunghezza: int) -> str:
+        """Excerpt around the matches. Very long texts get their first lines instead: building
+        the highlighted excerpt there would take seconds."""
+        if lunghezza <= MAX_TESTO_SNIPPET:
+            r = self._conn.execute(
+                "SELECT snippet(atti_fts, -1, '[', ']', '...', 24) AS s FROM atti_fts"
+                " WHERE atti_fts MATCH ? AND rowid = ?",
+                (match, rowid),
+            ).fetchone()
+            if r is not None:
+                return r["s"]
+        r = self._conn.execute("SELECT substr(testo, 1, 200) AS s FROM atti WHERE id = ?", (rowid,))
+        return " ".join((r.fetchone()["s"] or "").split()) + "..."
 
     # -- work queue of the issues ----------------------------------------------------------
 

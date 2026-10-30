@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import re
+import sqlite3
 from collections.abc import Iterable
 from dataclasses import dataclass
 
@@ -246,8 +247,10 @@ def storico(store: ArchiveStore, codice: str, *, profondita: int = 5) -> list[Vo
     for direzione, da_col, a_col in (("agisce_su", "da", "a"), ("subisce", "a", "da")):
         # ``a_col`` is the column matched with the current node, ``da_col`` the one to move to.
         # Only constant fragments are interpolated; every value is a bound parameter.
+        # MATERIALIZED lets SQLite index the small map: without it every edge scans it.
+        materialized = "MATERIALIZED " if sqlite3.sqlite_version_info >= (3, 35, 0) else ""
         sql = f"""
-            WITH RECURSIVE brevi(urn, codice) AS (
+            WITH RECURSIVE brevi(urn, codice) AS {materialized}(
                 SELECT key, value FROM json_each(?)
             ),
             e(da, a, tipo) AS (

@@ -14,6 +14,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   between acts and a daily parser check. Run it with `python -m gazzetta_mcp.archivio`
   (`aggiorna`, `recupera`, `controlla`, `stato`). The local server reads the archive after its cache
   and before the sources, only if the archive file exists. Normattiva data: CC BY 4.0.
+- Read-only remote MCP service of the archive (`python -m gazzetta_mcp.archivio.remoto`) with a
+  per-IP rate limit and caps on queries and results.
+- The backward recovery of the Gazzetta crosses the year boundary.
 
 ## [0.2.0] - 2026-10-29
 
