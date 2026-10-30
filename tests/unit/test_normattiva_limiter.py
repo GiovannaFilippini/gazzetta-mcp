@@ -60,4 +60,4 @@ async def test_archive_search_and_testo_vigente_share_one_limiter(tmp_path):
 
     assert len(times) >= 3
     gaps = [b - a for a, b in zip(sorted(times), sorted(times)[1:])]
-    assert min(gaps) >= (1 / RPS) * 0.9, gaps
+    assert min(gaps) >= (1 / RPS) * 0.75, gaps  # timer jitter on Windows is about 15 ms
