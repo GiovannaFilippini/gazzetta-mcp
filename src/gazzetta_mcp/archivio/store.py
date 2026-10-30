@@ -76,6 +76,10 @@ _MIGRATIONS = [
         aggiornato_il TEXT NOT NULL
     );
     """,
+    # v2: an act taken from Normattiva holds only its first article; the GU copy completes it.
+    """
+    ALTER TABLE atti ADD COLUMN testo_completo INTEGER NOT NULL DEFAULT 1;
+    """,
 ]
 
 
@@ -91,12 +95,18 @@ class ArchiveStore:
             file = Path(target).expanduser()
             file.parent.mkdir(parents=True, exist_ok=True)
             target = str(file)
-        self._conn = sqlite3.connect(target, check_same_thread=False)
+        try:
+            self._conn = sqlite3.connect(target, check_same_thread=False)
+        except sqlite3.Error as exc:
+            raise ArchiveError(f"Cannot open the archive {target}: {exc}") from exc
         try:
             self._conn.row_factory = sqlite3.Row
             if target != ":memory:":
                 self._conn.execute("PRAGMA journal_mode = WAL")
             self._migrate()
+        except sqlite3.Error as exc:  # not a database, corrupt, locked...
+            self._conn.close()
+            raise ArchiveError(f"Cannot use the archive {target}: {exc}") from exc
         except Exception:
             self._conn.close()
             raise
@@ -141,14 +151,21 @@ class ArchiveStore:
                 is not None
             )
 
-    def put_atto(self, atto: Atto, *, fonte: str, urn: str | None = None) -> bool:
-        """Store an act. Returns False (and changes nothing) if the code is already archived."""
+    def put_atto(
+        self, atto: Atto, *, fonte: str, urn: str | None = None, completo: bool = True
+    ) -> bool:
+        """Store an act. Returns False (and changes nothing) if the code is already archived.
+
+        ``completo=False`` marks a partial text (e.g. only the first article from Normattiva):
+        it can later be replaced with ``sostituisci_atto``.
+        """
         if fonte not in FONTI:
             raise ValueError(f"fonte must be one of {FONTI}, got {fonte!r}")
         with self._lock, self._conn:
             cur = self._conn.execute(
                 "INSERT OR IGNORE INTO atti (codice, fonte, serie, data, titolo, emettitore, tipo,"
-                " testo, link, numero_gu, urn, archiviato_il) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                " testo, link, numero_gu, urn, archiviato_il, testo_completo)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     atto.codice,
                     fonte,
@@ -162,6 +179,7 @@ class ArchiveStore:
                     atto.numero_gu,
                     urn,
                     _now(),
+                    int(completo),
                 ),
             )
             if cur.rowcount == 0:
@@ -169,6 +187,52 @@ class ArchiveStore:
             self._conn.execute(
                 "INSERT INTO atti_fts (rowid, titolo, emettitore, testo) VALUES (?,?,?,?)",
                 (cur.lastrowid, atto.titolo, atto.emettitore, atto.testo),
+            )
+            return True
+
+    def ha_testo_completo(self, codice: str) -> bool:
+        """True if the act is archived with its full text (False: absent or partial)."""
+        with self._lock:
+            r = self._conn.execute(
+                "SELECT testo_completo, testo FROM atti WHERE codice = ?", (codice,)
+            ).fetchone()
+        return r is not None and bool(r["testo_completo"]) and bool(r["testo"])
+
+    def sostituisci_atto(self, atto: Atto, *, fonte: str, completo: bool = True) -> bool:
+        """Replace an archived act whose text is partial or empty. Never touches a full text.
+
+        Returns True if the act was replaced.
+        """
+        if fonte not in FONTI:
+            raise ValueError(f"fonte must be one of {FONTI}, got {fonte!r}")
+        with self._lock, self._conn:
+            row = self._conn.execute(
+                "SELECT id, testo_completo, testo, urn FROM atti WHERE codice = ?", (atto.codice,)
+            ).fetchone()
+            if row is None or (row["testo_completo"] and row["testo"]):
+                return False
+            self._conn.execute(
+                "UPDATE atti SET fonte=?, serie=?, data=?, titolo=?, emettitore=?, tipo=?,"
+                " testo=?, link=?, numero_gu=?, archiviato_il=?, testo_completo=? WHERE id=?",
+                (
+                    fonte,
+                    atto.serie.value,
+                    atto.data.isoformat(),
+                    atto.titolo,
+                    atto.emettitore,
+                    atto.tipo,
+                    atto.testo,
+                    atto.link,
+                    atto.numero_gu,
+                    _now(),
+                    int(completo),
+                    row["id"],
+                ),
+            )
+            self._conn.execute("DELETE FROM atti_fts WHERE rowid = ?", (row["id"],))
+            self._conn.execute(
+                "INSERT INTO atti_fts (rowid, titolo, emettitore, testo) VALUES (?,?,?,?)",
+                (row["id"], atto.titolo, atto.emettitore, atto.testo),
             )
             return True
 
@@ -361,7 +425,11 @@ class ArchiveStore:
         if not sql.lstrip().lower().startswith(("select", "with")):
             raise ValueError("read() only accepts SELECT or WITH queries")
         with self._lock:
-            return self._conn.execute(sql, params).fetchall()
+            self._conn.execute("PRAGMA query_only = ON")
+            try:
+                return self._conn.execute(sql, params).fetchall()
+            finally:
+                self._conn.execute("PRAGMA query_only = OFF")
 
     # -- notes of the jobs ------------------------------------------------------------------
 

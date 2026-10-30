@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 from datetime import date
 
 import pytest
@@ -105,3 +106,36 @@ def test_schema_persists_on_disk(tmp_path):
         s.put_atto(_atto(), fonte="gu")
     with ArchiveStore(path) as s:
         assert s.has_atto("26A00001")
+
+
+def test_partial_text_can_be_replaced_but_a_full_one_never(store):
+    parziale = _atto()
+    assert store.put_atto(parziale, fonte="normattiva", completo=False) is True
+    assert store.ha_testo_completo("26A00001") is False
+    intero = Atto(**{**parziale.__dict__, "testo": "Testo intero con articoli sulla pesca."})
+    assert store.sostituisci_atto(intero, fonte="gu") is True
+    assert store.ha_testo_completo("26A00001")
+    assert [h.codice for h in store.search("pesca", SearchFilters())] == ["26A00001"]
+    assert store.search("acquisti", SearchFilters()) == []  # the old text left the index
+    assert store.sostituisci_atto(parziale, fonte="normattiva") is False  # full text is kept
+
+
+def test_empty_text_counts_as_not_complete(store):
+    store.put_atto(Atto(**{**_atto().__dict__, "testo": ""}), fonte="gu")
+    assert store.ha_testo_completo("26A00001") is False
+
+
+def test_read_cannot_write_even_through_with(store):
+    store.put_archi([Arco("A", "B", "modifica", "gu")])
+    with pytest.raises(sqlite3.Error):
+        store.read("WITH x AS (SELECT 1) DELETE FROM archi")
+    assert len(store.archi_di("A")) == 1
+
+
+def test_not_a_database_is_an_archive_error(tmp_path):
+    from gazzetta_mcp.archivio import ArchiveError
+
+    bad = tmp_path / "archivio.sqlite3"
+    bad.write_text("questo non e' un database sqlite" * 50)
+    with pytest.raises(ArchiveError):
+        ArchiveStore(bad)
