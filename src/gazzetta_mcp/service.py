@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import os
 import re
+import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
+from .archivio import ArchiveError, ArchiveStore
 from .cache.sqlite import CacheError, SqliteCache
 from .concorsi import BANDI, classify, estrai_posti, keyword_matcher
 from .config import Settings
@@ -166,6 +168,7 @@ class GazzettaService:
         archivio: ArchiveSearch | None = None,
         ricerca_gu: ArchiveSearch | None = None,
         normattiva_limiter: RateLimiter | None = None,
+        archivio_store: ArchiveStore | None = None,
     ) -> None:
         self._client = client
         self._parser = parser
@@ -178,6 +181,8 @@ class GazzettaService:
         self._closers = closers
         self._archivio = archivio
         self._ricerca_gu = ricerca_gu
+        # Central archive on this device (step 2): read after the cache, before the sources.
+        self._archivio_store = archivio_store
         # One limiter for the whole Normattiva site, shared by every client that calls it.
         self._normattiva_limiter = normattiva_limiter or RateLimiter(
             self._settings.requests_per_second
@@ -356,6 +361,11 @@ class GazzettaService:
         s_arg, d_arg = _parse_serie(serie), _parse_date(data)
 
         atto = self._cache.get_atto(codice)
+        if atto is None or not atto.testo:
+            archived = self._archived_atto(codice)
+            if archived is not None:
+                self._cache.put_atto(archived)
+                atto = archived
         from_cache = atto is not None and bool(atto.testo)
         if atto is None or not atto.testo:
             s, d, guessed = self._locate(codice, s_arg, d_arg)
@@ -373,6 +383,27 @@ class GazzettaService:
                 )
             atto = await self._fetch_atto(codice, d, s, guessed)
         return self._atto_result(atto, offset, from_cache)
+
+    def _archived_atto(self, codice: str) -> Atto | None:
+        """The act from the central archive, only with its full text. Any archive problem
+        (corrupt or locked database) just means 'not there': the sources are used instead."""
+        store = self._archivio_store
+        if store is None:
+            return None
+        try:
+            if not store.ha_testo_completo(codice):
+                return None
+            return store.get_atto(codice)
+        except (sqlite3.Error, ValueError):
+            return None
+
+    def _archive_hits(self, testo: str, filtri: SearchFilters) -> list[SearchHit]:
+        if self._archivio_store is None:
+            return []
+        try:
+            return self._archivio_store.search(testo, filtri)
+        except (sqlite3.Error, ValueError):
+            return []
 
     async def _fetch_atto(self, codice: str, d: date, s: Serie, guessed: bool) -> Atto:
         try:
@@ -805,7 +836,11 @@ class GazzettaService:
                     "la ricerca usa solo la cache locale."
                 )
         stats = getattr(self._cache, "stats", None)
-        if stats is not None and stats().get("search_entries", 1) == 0:
+        if (
+            stats is not None
+            and self._archivio_store is None
+            and stats().get("search_entries", 1) == 0
+        ):
             return self._result(
                 {
                     "totale": 0,
@@ -820,6 +855,14 @@ class GazzettaService:
                 [self._base],
             )
         hits = self._cache.search(testo, filtri)
+        seen = {h.codice for h in hits}
+        extra = [h for h in self._archive_hits(testo, filtri) if h.codice not in seen]
+        if extra:  # best matches first, whatever the place they come from
+            hits = sorted(hits + extra, key=lambda h: -h.punteggio)[: filtri.limite]
+            note.append(
+                "Alcuni risultati vengono dall'archivio su questo dispositivo (Gazzetta Ufficiale "
+                "e Normattiva Open Data, licenza CC BY 4.0, dati.normattiva.it)."
+            )
         fonti_archivio: list[str] = []
         if aggiorna:
             hits, fonti_archivio = await self._search_archives(testo, filtri, s, hits, note)
@@ -956,12 +999,21 @@ def build_service(settings: Settings | None = None) -> GazzettaService:
         else None
     )
     ricerca_gu = RicercaGuClient(settings, cache=cache) if settings.ricerca_gu else None
+    archivio_store = None
+    if settings.archivio_path.exists():  # never create an empty archive just by reading
+        try:
+            archivio_store = ArchiveStore(settings.archivio_path)
+        except (ArchiveError, OSError):
+            archivio_store = None  # an unreadable archive must not stop the local server
     closers = (client.aclose, cache.close)
+    if archivio_store is not None:
+        closers += (archivio_store.close,)
     closers += tuple(c.aclose for c in (archivio, ricerca_gu) if c is not None)
     return GazzettaService(
         archivio=archivio,
         ricerca_gu=ricerca_gu,
         normattiva_limiter=normattiva_limiter,
+        archivio_store=archivio_store,
         client=client,
         parser=GuParser(),
         cache=cache,
