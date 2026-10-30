@@ -7,6 +7,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Step 2 (decision 090), first part: a central archive of Gazzetta Ufficiale and Normattiva acts in
+  its own SQLite file, with full text search, a resumable work queue of issues, typed relations
+  between acts and a daily parser check. Run it with `python -m gazzetta_mcp.archivio`
+  (`aggiorna`, `recupera`, `controlla`, `stato`). The local server reads the archive after its cache
+  and before the sources, only if the archive file exists. Normattiva data: CC BY 4.0.
+
 ## [0.2.0] - 2026-10-29
 
 ### Added
