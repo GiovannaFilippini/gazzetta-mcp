@@ -23,7 +23,9 @@ EnvironmentFile=/etc/gazzetta-archivio/variabili.env
 ExecStart=/opt/gazzetta-mcp/venv/bin/python -m gazzetta_mcp.archivio.remoto \
     --host 127.0.0.1 --port 8080 \
     --archivio /var/lib/gazzetta-archivio/archivio.sqlite3 \
-    --trust-proxy
+    --trust-proxy --serie SG
+# --serie SG: il servizio pubblico serve solo la Serie Generale (e Normattiva); le altre serie
+# (concorsi, Parte II, ecc.) restano nell'archivio ma non compaiono in nessuna risposta.
 # Per cambiare il limite per IP aggiungi in coda, per esempio: --limite-minuto 30 --raffica 10
 # (sono i valori predefiniti del codice).
 Restart=on-failure

@@ -9,6 +9,8 @@ source client would be public anyway, see decision 090).
 
 Personal data: the archive holds public texts that may contain personal data, so the service
 asks search engines not to index it (``/robots.txt``) and never logs the content of a query.
+``--serie SG`` restricts the public service to the listed series (scope A of the GDPR
+assessment): acts of any other series are never returned, counted or hinted at.
 """
 
 from __future__ import annotations
@@ -23,6 +25,7 @@ import threading
 import time
 from collections import OrderedDict
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -34,9 +37,10 @@ from starlette.responses import PlainTextResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from .. import __version__
-from ..models import DISCLAIMER, SearchFilters, Serie
+from ..cache.sqlite import build_match_query
+from ..models import DISCLAIMER, SearchFilters, SearchHit, Serie
 from . import grafo
-from .store import SCHEMA_VERSION, ArchiveError, ArchiveStore
+from .store import MAX_PAROLE_RICERCA, SCHEMA_VERSION, ArchiveError, ArchiveStore
 
 log = logging.getLogger("gazzetta_mcp.remoto")
 
@@ -51,6 +55,7 @@ MAX_QUERY = 200  # characters of the search text
 MAX_CAMPO = 100  # characters of the other free-text filters and of a code
 MAX_PROFONDITA = 10  # tighter than grafo.PROFONDITA_MASSIMA: this one is public
 MAX_VOCI_STORICO = 200
+MAX_ESPANSIONI_STORICO = 60  # graph steps of a restricted history (one query each)
 MAX_BODY = 64 * 1024  # bytes of an HTTP request body
 MAX_CHARS_DEFAULT = 20000
 MAX_IP_TRACCIATI = 10000
@@ -121,6 +126,34 @@ class ArchivioSolaLettura(ArchiveStore):
             list(codici),
         )
         return {r["codice"]: (r["fonte"], bool(r["testo_completo"])) for r in rows}
+
+    def serie_di(self, codici: Sequence[str]) -> dict[str, Serie]:
+        """Series of the given archived acts: ``{codice: serie}`` (unknown codes are absent)."""
+        if not codici:
+            return {}
+        marks = ",".join("?" * len(codici))
+        rows = self.read(f"SELECT codice, serie FROM atti WHERE codice IN ({marks})", list(codici))
+        return {r["codice"]: Serie(r["serie"]) for r in rows}
+
+    def cerca_in_serie(
+        self, testo: str, filtri: SearchFilters, serie: Sequence[Serie]
+    ) -> list[SearchHit]:
+        """Full text search restricted to several series (``SearchFilters`` holds only one).
+
+        Runs the search once per series with the full limit, merges by score and cuts to the
+        limit, so the result equals a single search over the union. As in ``search``, the
+        any-word fallback applies to the whole merged result, never to a single series.
+        """
+        testo = " ".join(testo.split()[:MAX_PAROLE_RICERCA])
+        for any_word in (False, True):
+            match = build_match_query(testo, any_word=any_word)
+            merged: list[SearchHit] = []
+            for s in serie:
+                merged += self._search(match, replace(filtri, serie=s))
+            if merged:
+                merged.sort(key=lambda h: (-h.punteggio, -h.data.toordinal(), h.codice))
+                return merged[: filtri.limite]
+        return []
 
 
 # -- rate limit ---------------------------------------------------------------------------
@@ -300,10 +333,45 @@ def _avvisi(fonti: Sequence[str]) -> dict[str, Any]:
     return out
 
 
-def create_server(store: ArchivioSolaLettura) -> FastMCP:
-    """Build the FastMCP app serving ``store``. All tools are read-only."""
+def parse_serie(valore: str) -> list[Serie]:
+    """Parse a comma-separated list of series (``SG,S1``); raises ``ValueError`` if invalid."""
+    out: list[Serie] = []
+    for parte in valore.split(","):
+        nome = parte.strip().upper()
+        if not nome:
+            continue
+        try:
+            serie = Serie(nome)
+        except ValueError:
+            validi = ", ".join(s.value for s in Serie)
+            raise ValueError(f"serie non valida {nome!r}: valori ammessi {validi}") from None
+        if serie not in out:
+            out.append(serie)
+    if not out:
+        raise ValueError("indica almeno una serie, per esempio SG")
+    return out
+
+
+def create_server(
+    store: ArchivioSolaLettura, serie_consentite: Sequence[Serie] | None = None
+) -> FastMCP:
+    """Build the FastMCP app serving ``store``. All tools are read-only.
+
+    ``serie_consentite`` limits every tool to those series (``None`` = all of them).
+    """
     mcp = FastMCP(NAME, instructions=INSTRUCTIONS, version=__version__, mask_error_details=True)
     max_chars = _max_chars()
+    consentite = list(dict.fromkeys(serie_consentite)) if serie_consentite else None
+    nomi_consentite = ", ".join(s.value for s in consentite) if consentite else None
+
+    def permessa(serie: Serie) -> bool:
+        return consentite is None or serie in consentite
+
+    def nascosti(codici: Sequence[str]) -> set[str]:
+        """Archived codes among ``codici`` that belong to a series this service does not serve."""
+        if consentite is None:
+            return set()
+        return {c for c, s in store.serie_di(codici).items() if not permessa(s)}
 
     def guarded(fn: Callable[..., dict[str, Any]]) -> Callable[..., dict[str, Any]]:
         @functools.wraps(fn)
@@ -351,6 +419,12 @@ def create_server(store: ArchivioSolaLettura) -> FastMCP:
                 serie_val = Serie(serie_txt.upper())
             except ValueError:
                 raise ToolError("Serie non valida: usa SG, S1, S2, S3, S4, S5 o P2.") from None
+            if not permessa(serie_val):
+                # Never list what is excluded: only say what this service does cover.
+                raise ToolError(
+                    f"Questo servizio cerca solo nelle serie: {nomi_consentite}. "
+                    "Per le altre usa il sito ufficiale della Gazzetta Ufficiale."
+                )
         filtri = SearchFilters(
             serie=serie_val,
             tipo=_testo(tipo, "Il tipo", MAX_CAMPO),
@@ -358,7 +432,10 @@ def create_server(store: ArchivioSolaLettura) -> FastMCP:
             al=_data(al, "La data di fine"),
             limite=max(1, min(int(limite), MAX_RISULTATI)),
         )
-        hits = store.search(query, filtri)
+        if consentite is not None and serie_val is None:
+            hits = store.cerca_in_serie(query, filtri, consentite)
+        else:
+            hits = store.search(query, filtri)
         info = store.info_atti([h.codice for h in hits])
         risultati = [
             {
@@ -394,7 +471,7 @@ def create_server(store: ArchivioSolaLettura) -> FastMCP:
         cod = _codice(codice)
         offset = max(0, int(offset))
         atto = store.get_atto(cod)
-        if atto is None:
+        if atto is None or not permessa(atto.serie):  # excluded acts look like missing ones
             raise ToolError(
                 "Atto non presente nell'archivio: controlla il codice o usa la ricerca."
             )
@@ -421,6 +498,44 @@ def create_server(store: ArchivioSolaLettura) -> FastMCP:
         }
         return out | _avvisi([fonte])
 
+    def storico_consentito(cod: str, prof: int) -> tuple[list[grafo.VoceStorico], bool]:
+        """History walked one step at a time so that it never passes through an excluded act.
+
+        Filtering the full result would still leave depth gaps and reveal acts reachable only
+        through a hidden one. An unknown or excluded starting act gives an empty history.
+        """
+        partenza = grafo._risolvi(store, cod, grafo._mappa_brevi(store))
+        if nascosti([partenza, cod]):
+            return [], False
+        voci: list[grafo.VoceStorico] = []
+        espansioni = 0
+        for direzione in ("agisce_su", "subisce"):
+            visti = {partenza}
+            fronte = [partenza]
+            for livello in range(1, prof + 1):
+                prossimo: list[str] = []
+                for nodo in fronte:
+                    if espansioni >= MAX_ESPANSIONI_STORICO:
+                        return ordina(voci), True
+                    espansioni += 1
+                    vicini = [
+                        v
+                        for v in grafo.storico(store, nodo, profondita=1)
+                        if v.direzione == direzione and v.codice not in visti
+                    ]
+                    esclusi = nascosti([v.codice for v in vicini])
+                    for v in vicini:
+                        if v.codice in esclusi or v.codice in visti:
+                            continue
+                        visti.add(v.codice)
+                        prossimo.append(v.codice)
+                        voci.append(grafo.VoceStorico(v.codice, livello, v.tipo, direzione))
+                fronte = prossimo
+        return ordina(voci), False
+
+    def ordina(voci: list[grafo.VoceStorico]) -> list[grafo.VoceStorico]:
+        return sorted(voci, key=lambda v: (v.profondita, v.codice, v.direzione))
+
     @mcp.tool(annotations={"readOnlyHint": True, "idempotentHint": True})
     @guarded
     def storico_atto(codice: str, profondita: int = 5) -> dict[str, Any]:
@@ -435,8 +550,12 @@ def create_server(store: ArchivioSolaLettura) -> FastMCP:
         """
         cod = _codice(codice)
         prof = max(1, min(int(profondita), MAX_PROFONDITA))
-        voci = grafo.storico(store, cod, profondita=prof)
-        troncato = len(voci) > MAX_VOCI_STORICO
+        if consentite is None:
+            voci = grafo.storico(store, cod, profondita=prof)
+            troncato_visita = False
+        else:
+            voci, troncato_visita = storico_consentito(cod, prof)
+        troncato = troncato_visita or len(voci) > MAX_VOCI_STORICO
         voci = voci[:MAX_VOCI_STORICO]
         codici = [v.codice for v in voci]
         info = store.info_atti(codici)
@@ -466,14 +585,25 @@ def create_server(store: ArchivioSolaLettura) -> FastMCP:
         Usalo per spiegare all'utente quanto e' completo l'archivio prima di fidarsi
         di una ricerca vuota.
         """
-        per_fonte = {
-            r["fonte"]: r["n"]
-            for r in store.read("SELECT fonte, COUNT(*) AS n FROM atti GROUP BY fonte")
-        }
+        if consentite is None:
+            righe = store.read("SELECT fonte, COUNT(*) AS n FROM atti GROUP BY fonte")
+            numeri = store.conteggio_numeri()
+        else:
+            marks = ",".join("?" * len(consentite))
+            righe = store.read(
+                f"SELECT fonte, COUNT(*) AS n FROM atti WHERE serie IN ({marks}) GROUP BY fonte",
+                [s.value for s in consentite],
+            )
+            numeri = {}
+            for s in consentite:
+                for stato, n in store.conteggio_numeri(s).items():
+                    numeri[stato] = numeri.get(stato, 0) + n
+        per_fonte = {r["fonte"]: r["n"] for r in righe}
         return {
-            "atti": store.count_atti(),
+            "serie_consentite": [s.value for s in (consentite or list(Serie))],
+            "atti": sum(per_fonte.values()),
             "atti_per_fonte": per_fonte,
-            "numeri": store.conteggio_numeri(),
+            "numeri": numeri,
             "ultimo_aggiornamento": store.ultimo_aggiornamento(),
             "attribuzioni": [LICENZA_NORMATTIVA],
             "avviso": DISCLAIMER,
@@ -493,9 +623,10 @@ def create_app(
     raffica: int = RAFFICA_DEFAULT,
     trust_proxy: bool = False,
     clock: Callable[[], float] = time.monotonic,
+    serie_consentite: Sequence[Serie] | None = None,
 ) -> Any:
     """ASGI app: the MCP endpoint at ``/mcp`` behind the per-IP limit."""
-    mcp = create_server(store)
+    mcp = create_server(store, serie_consentite)
     app = mcp.http_app(path="/mcp", stateless_http=True)
     bucket = TokenBucket(limite_minuto, raffica, clock=clock)
     app.add_middleware(LimiteRichieste, bucket=bucket, trust_proxy=trust_proxy)
@@ -530,6 +661,12 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="leggi l'IP da X-Forwarded-For (solo dietro un proxy fidato che lo imposta)",
     )
+    p.add_argument(
+        "--serie",
+        default=None,
+        help="serie servite, separate da virgola (es. SG oppure SG,S1); se omessa, tutte. "
+        "In produzione si consiglia SG.",
+    )
     return p
 
 
@@ -540,6 +677,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.limite_minuto <= 0 or args.raffica < 1:
         print("Errore: --limite-minuto deve essere > 0 e --raffica almeno 1.")
         return 2
+    serie_consentite = None
+    if args.serie is not None:
+        try:
+            serie_consentite = parse_serie(args.serie)
+        except ValueError as exc:
+            print(f"Errore: --serie: {exc}.")
+            return 2
     try:
         store = ArchivioSolaLettura(args.archivio)
     except ArchiveError as exc:
@@ -551,6 +695,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             limite_minuto=args.limite_minuto,
             raffica=args.raffica,
             trust_proxy=args.trust_proxy,
+            serie_consentite=serie_consentite,
         )
         # No access log: paths and client addresses are not needed, and query text never is.
         uvicorn.run(
