@@ -33,7 +33,9 @@ def _parser() -> argparse.ArgumentParser:
     r = sub.add_parser("recupera", help="backward recovery, a limited batch per run")
     r.add_argument("--max-numeri", type=int, default=20, help="GU issues per series (default 20)")
     r.add_argument("--max-atti", type=int, default=200, help="Normattiva acts (default 200)")
-    r.add_argument("--serie", default="SG", help="GU series to recover (default SG)")
+    r.add_argument(
+        "--serie", default="SG", choices=[s.value for s in Serie], help="GU series (default SG)"
+    )
     sub.add_parser("controlla", help="check that the parser still reads the GU pages")
     sub.add_parser("stato", help="show what the archive holds")
     return p
@@ -121,6 +123,9 @@ async def _controlla(store: ArchiveStore, settings: Settings) -> bool:
         )
         if rows:
             campioni.append(Campione(serie, date.fromisoformat(rows[0]["data"]), rows[0]["numero"]))
+    if not campioni:
+        print("Niente da controllare: nessun numero della Gazzetta e' ancora stato archiviato.")
+        return True
     client = GuClient(settings)
     try:
         rapporto = await controlla_parser(client, GuParser(), store, campioni=campioni)
@@ -137,6 +142,12 @@ def _stato(store: ArchiveStore) -> dict[str, object]:
         "ultimo_errore_normattiva": store.get_stato("normattiva.ultimo_errore") or "",
         "cursore_normattiva": store.get_stato("normattiva.cursore") or "",
         "controllo_parser": store.get_stato("controllo_parser") or "",
+        "note_dei_lavori": {  # stops and cursors of the jobs, e.g. gu.SG.ultimo_stop
+            r["chiave"]: r["valore"]
+            for r in store.read(
+                "SELECT chiave, valore FROM stato WHERE chiave LIKE 'gu.%' ORDER BY chiave"
+            )
+        },
     }
 
 

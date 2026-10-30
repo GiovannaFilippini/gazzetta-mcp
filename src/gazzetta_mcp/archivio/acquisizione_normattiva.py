@@ -58,7 +58,7 @@ CHIAVE_LICENZA = "normattiva.licenza"
 LICENZA = "CC BY 4.0 - Normattiva Open Data (dati.normattiva.it)"
 MAX_FINESTRE = 50  # default windows per recovery run
 # Remote fields end up in a URN and in a link: accept only plain shapes.
-_RE_TIPO = re.compile(r"[a-z]+(?:[ -][a-z]+){0,5}")
+_RE_TIPO = re.compile(r"[a-z]+(?:[ -][a-z]+){0,8}")
 _RE_NUMERO = re.compile(r"[0-9]{1,6}(?:[-.]?[A-Za-z]{1,10})?")
 _RE_CODICE = re.compile(r"[0-9A-Za-z]{4,16}")
 BACKOFF_PREDEFINITO = (30.0, 120.0)  # waits before the 2nd and the 3rd attempt, then stop
@@ -93,7 +93,10 @@ def _lista(data: dict) -> list:
     if data.get("message"):
         raise GuError(f"Normattiva list: {str(data['message'])[:200]}")
     lista = data.get("listaAtti")
+    trovati = data.get("numeroAttiTrovati")
     if isinstance(lista, list):
+        if not lista and trovati is not None and str(trovati) != "0":
+            raise GuError(f"Normattiva list: empty list but {trovati} acts found")
         return lista
     if lista is None and str(data.get("numeroAttiTrovati")) == "0":
         return []
@@ -373,9 +376,11 @@ async def _acquisisci(
                 return
             await _conta_voce(client, store, voce, base_url, sleep, backoff, corsa)
         corsa.scartate += elenco.scartate
-        if pagina >= elenco.pagine or not elenco.voci:
+        if pagina >= elenco.pagine:
             corsa.completo = True
             return
+        if not elenco.voci and not elenco.scartate:  # a middle page cannot be empty
+            raise GuError(f"Normattiva list: page {pagina} of {elenco.pagine} is empty")
         pagina += 1
 
 

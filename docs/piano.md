@@ -5,7 +5,7 @@
 | Step | Cosa | Stato |
 |---|---|---|
 | 1 | Server MCP locale con cache SQLite sul dispositivo (questo documento) | in chiusura: repo pubblico, PyPI |
-| 2 | Servizio remoto con archivio centrale: popolamento massivo, aggiornamento pianificato (cron), riempimento su richiesta; GU + Normattiva | da progettare, vedi decisione 090 |
+| 2 | Servizio remoto con archivio centrale: popolamento massivo, aggiornamento pianificato (cron), riempimento su richiesta; GU + Normattiva | codice dell'archivio fatto (store, acquisizione GU e Normattiva, grafo, comando `python -m gazzetta_mcp.archivio`); restano hosting, popolamento e servizio via rete, vedi decisione 090 |
 | 3 | Riassunti generati sul server e cronologie per ambito | dopo lo step 2 |
 
 Le regole d'uso piu' sotto valgono per il client locale dello step 1. Sono una scelta nostra, non un vincolo delle fonti (`docs/fonti.md`); per lo step 2 valgono quelle della decisione 090.

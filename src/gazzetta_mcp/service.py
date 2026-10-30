@@ -859,6 +859,10 @@ class GazzettaService:
         extra = [h for h in self._archive_hits(testo, filtri) if h.codice not in seen]
         if extra:  # best matches first, whatever the place they come from
             hits = sorted(hits + extra, key=lambda h: -h.punteggio)[: filtri.limite]
+            note.append(
+                "Alcuni risultati vengono dall'archivio su questo dispositivo (Gazzetta Ufficiale "
+                "e Normattiva Open Data, licenza CC BY 4.0, dati.normattiva.it)."
+            )
         fonti_archivio: list[str] = []
         if aggiorna:
             hits, fonti_archivio = await self._search_archives(testo, filtri, s, hits, note)

@@ -43,3 +43,11 @@ Riassunti generati sul server e cronologie per ambito. Avranno una decisione pro
 
 - 005 (Normattiva solo link) e 070 (niente scansione dell'archivio) restano valide per il client locale dello step 1; per il servizio remoto sono superate da questa decisione.
 - Il servizio remoto e' un componente nuovo; il client locale continua a funzionare da solo, senza archivio remoto.
+
+## Stato di realizzazione (30/10/2026)
+
+- **Fatto, come file SQLite sul dispositivo:** `archivio/store.py` (atti con FTS5, coda dei numeri, archi, note dei lavori); acquisizione GU riprendibile con backoff (`acquisizione_gu.py`); acquisizione Normattiva open data (`acquisizione_normattiva.py`, dati CC BY 4.0 di dati.normattiva.it); grafo dei collegamenti e controllo del parser (`grafo.py`, `controllo_parser.py`); comando `python -m gazzetta_mcp.archivio aggiorna|recupera|controlla|stato`. Il server locale legge l'archivio dopo la cache e prima delle fonti, solo se il file esiste.
+- **Scelta di hosting:** SQLite su una piccola macchina (alternativa Postgres scartata per ora).
+- **Testo di Normattiva:** l'API da' un articolo per volta, quindi per questi atti si archivia il solo primo articolo, marcato come parziale (`testo_completo = 0`); la GU lo completa e il servizio non lo serve mai come atto intero.
+- **Non fatto:** popolamento reale, macchina e cron, servizio via rete (MCP remoto), scansione per anno per i numeri della GU prima dell'inizio dell'anno corrente, valutazione GDPR prima dell'apertura al pubblico.
+

@@ -168,3 +168,22 @@ async def test_non_json_answer_suspends_the_run(store):
         await client.aclose()
     assert n == 0 and store.get_stato(CHIAVE_CURSORE) is None
     assert "unreadable" in store.get_stato(CHIAVE_ERRORE)
+
+
+def test_empty_list_with_acts_found_is_an_error():
+    import pytest
+
+    from gazzetta_mcp.archivio.acquisizione_normattiva import _lista
+    from gazzetta_mcp.sources.gu import GuError
+
+    assert _lista({"listaAtti": [], "numeroAttiTrovati": 0}) == []
+    assert _lista({"listaAtti": []}) == []
+    with pytest.raises(GuError):
+        _lista({"listaAtti": [], "numeroAttiTrovati": 12})
+
+
+def test_long_denominations_are_accepted():
+    from gazzetta_mcp.archivio.acquisizione_normattiva import _RE_TIPO
+
+    nome = "decreto del presidente del consiglio dei ministri"
+    assert _RE_TIPO.fullmatch(nome)

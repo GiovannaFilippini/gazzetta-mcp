@@ -271,6 +271,10 @@ async def accoda_indietro(
     while accodati < quanti and atteso >= 1:
         giorno -= timedelta(days=1)
         if giorno.year != ref_data.year:
+            store.set_stato(
+                f"gu.{serie.value}.ultimo_stop",
+                f"inizio anno {ref_data.year}: manca il numero finale dell'anno prima",
+            )
             break
         if giorno.weekday() not in giorni:
             continue
