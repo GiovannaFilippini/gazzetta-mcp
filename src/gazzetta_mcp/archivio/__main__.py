@@ -152,6 +152,9 @@ def _stato(store: ArchiveStore) -> dict[str, object]:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    # Output is read by people and by cron logs: never fail or garble on a Windows code page.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     args = _parser().parse_args(argv)
     settings = Settings.from_env()
     if args.comando in ("stato", "controlla") and not settings.archivio_path.exists():
