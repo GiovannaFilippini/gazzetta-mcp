@@ -1,7 +1,8 @@
 """Command line of the archive jobs: ``python -m gazzetta_mcp.archivio <command>``.
 
 Commands: ``aggiorna`` (daily: new issues of the GU and updates of Normattiva), ``recupera``
-(backward recovery, resumable), ``controlla`` (parser check), ``stato`` (what is in the archive).
+(backward recovery, resumable), ``controlla`` (parser check), ``stato`` (what is in the archive),
+``rimuovi`` (remove acts on request, never acquired again) and ``rimossi`` (list of removals).
 Every command is safe to repeat: acts already archived are never downloaded again.
 """
 
@@ -38,6 +39,11 @@ def _parser() -> argparse.ArgumentParser:
     )
     sub.add_parser("controlla", help="check that the parser still reads the GU pages")
     sub.add_parser("stato", help="show what the archive holds")
+    rm = sub.add_parser("rimuovi", help="remove acts on request (without --si: only show them)")
+    rm.add_argument("codici", nargs="+", metavar="CODICE", help="editorial codes of the acts")
+    rm.add_argument("--motivo", required=True, help="short reason, kept with the code")
+    rm.add_argument("--si", action="store_true", help="really delete (otherwise a preview)")
+    sub.add_parser("rimossi", help="list the removed codes and dates (no texts)")
     return p
 
 
@@ -135,9 +141,34 @@ async def _controlla(store: ArchiveStore, settings: Settings) -> bool:
     return rapporto.ok and not sospetto
 
 
+def _rimuovi(store: ArchiveStore, codici: Sequence[str], motivo: str, conferma: bool) -> int:
+    """Preview or perform the removal; the archive file is compacted after a real removal."""
+    codici = list(dict.fromkeys(c.strip() for c in codici if c.strip()))
+    if not codici:
+        print("Nessun codice indicato.")
+        return 1
+    if not conferma:
+        for codice in codici:
+            atto = store.get_atto(codice)
+            if atto is None:
+                stato = "gia' rimosso" if store.e_rimosso(codice) else "non archiviato"
+                print(f"{codice}: {stato} (verrebbe solo registrato come rimosso)")
+            else:
+                print(f"{codice}: {atto.data.isoformat()}  {atto.titolo}")
+        print("Anteprima: nessuna modifica. Per cancellare davvero aggiungi --si.")
+        return 0
+    for codice in codici:
+        cancellato = store.rimuovi_atto(codice, motivo)
+        print(f"{codice}: {'rimosso' if cancellato else 'non archiviato, registrato come rimosso'}")
+    store.compatta()
+    print("Archivio compattato. Le copie di sicurezza gia' fatte non vengono toccate.")
+    return 0
+
+
 def _stato(store: ArchiveStore) -> dict[str, object]:
     return {
         "atti": store.count_atti(),
+        "atti_rimossi": store.count_rimossi(),
         "numeri": store.conteggio_numeri(),
         "ultimo_errore_normattiva": store.get_stato("normattiva.ultimo_errore") or "",
         "cursore_normattiva": store.get_stato("normattiva.cursore") or "",
@@ -157,13 +188,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     args = _parser().parse_args(argv)
     settings = Settings.from_env()
-    if args.comando in ("stato", "controlla") and not settings.archivio_path.exists():
+    if args.comando in ("stato", "controlla", "rimossi") and not settings.archivio_path.exists():
         print(f"Nessun archivio in {settings.archivio_path}: niente da mostrare o controllare.")
-        return 0 if args.comando == "stato" else 1
+        return 1 if args.comando == "controlla" else 0
     with ArchiveStore(settings.archivio_path) as store:
         if args.comando == "stato":
             print(json.dumps(_stato(store), ensure_ascii=False, indent=2))
             return 0
+        if args.comando == "rimossi":
+            for codice, motivo, quando in store.elenco_rimossi():
+                print(f"{codice}  {quando[:10]}  {motivo}")
+            return 0
+        if args.comando == "rimuovi":
+            return _rimuovi(store, args.codici, args.motivo, args.si)
         if args.comando == "controlla":
             return 0 if asyncio.run(_controlla(store, settings)) else 1
         if args.comando == "aggiorna":

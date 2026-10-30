@@ -321,7 +321,7 @@ async def _archivia_voce(
     sleep: Sleep,
     backoff: tuple[float, ...],
 ) -> str:
-    """Archive one entry; returns ``"nuovo"``, ``"presente"`` or ``"scartata"``.
+    """Archive one entry; returns ``"nuovo"``, ``"presente"``, ``"rimossa"`` or ``"scartata"``.
 
     Nothing is downloaded for an act that is already there (from the GU or from an earlier
     run), only its URN is recorded. A new act is always stored as partial text
@@ -330,6 +330,8 @@ async def _archivia_voce(
     if urn is None:
         return "scartata"
     codice = _codice(voce, urn)
+    if store.e_rimosso(codice):  # removed on request: no requests, not counted
+        return "rimossa"
     if store.has_atto(codice):
         store.set_urn(codice, urn)
         return "presente"
