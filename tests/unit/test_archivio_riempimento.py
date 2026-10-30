@@ -41,6 +41,7 @@ class FakeClient:
         self.calls: list[tuple[str, str]] = []
         self.fail: dict[str, list[Exception]] = {}
         self.empty_text = False
+        self.generic_scheda = False  # the site's answer for a code/date that does not exist
         self.gate: asyncio.Event | None = None  # when set, scheda waits for it
 
     def _maybe_fail(self, name: str) -> None:
@@ -60,6 +61,8 @@ class FakeClient:
             await self.gate.wait()
         await asyncio.sleep(0)
         self._maybe_fail("scheda")
+        if self.generic_scheda:
+            return page(b"<html><body><p>Gazzetta Ufficiale</p></body></html>")
         return page((FIX / "atto_scheda_26A05182_sg.html").read_bytes())
 
     async def get_atto_testo(
@@ -511,3 +514,44 @@ def test_fill_requires_an_explicit_series(db, capsys):
     assert (
         remoto.main(["--archivio", str(db), "--riempi", "--serie", "SG", "--riempi-ora", "0"]) == 2
     )
+
+
+async def test_a_generic_page_is_not_found_and_never_a_failure_of_the_source(
+    client, scrittore, orologio
+):
+    """The site answers 200 with a page without title for a wrong code or date, and then fails on
+    the menu: that must not open the breaker for everybody."""
+    client.generic_scheda = True
+    client.fail["testo"] = [GuHttpError("500")] * 20
+    rie = crea(client, scrittore, orologio)
+    giorno = date(2026, 10, 20)
+    for n in range(4):
+        r = await rie.riempi(f"26A9999{n}", ip=f"198.51.100.{n}", serie=Serie.SG, data=giorno)
+        assert r.stato == NON_TROVATO
+    assert ("testo", "26A99990") not in client.calls  # never asked for the text of a non-act
+    client.generic_scheda = False
+    client.fail.clear()
+    assert (await rie.riempi(IN_FEED, ip="203.0.113.99", serie=Serie.SG, data=giorno)).stato == OK
+    await rie.aclose()
+
+
+async def test_made_up_codes_that_cost_no_request_do_not_burn_the_caps(client, scrittore, orologio):
+    rie = crea(client, scrittore, orologio, per_ip_ora=2, globale_ora=3)
+    for n in range(8):  # the first needs the feed; the others are answered from memory
+        r = await rie.riempi(f"26X0000{n}", ip=IP)
+        assert r.stato == NON_TROVATO
+    assert (await rie.riempi(IN_FEED, ip=IP)).stato == OK
+    await rie.aclose()
+
+
+def test_ipv6_addresses_of_one_network_share_a_bucket():
+    from gazzetta_mcp.archivio.remoto import _normalizza_ip, ip_cliente
+
+    a = _normalizza_ip("2001:db8:1:2:aaaa:bbbb:cccc:dddd")
+    b = _normalizza_ip("2001:db8:1:2:1111:2222:3333:4444")
+    assert a == b == "2001:db8:1:2::/64"
+    assert _normalizza_ip("::ffff:203.0.113.7") == "203.0.113.7"
+    assert _normalizza_ip("203.0.113.7") == "203.0.113.7"
+    assert _normalizza_ip("not an address") == "not an address"
+    scope = {"headers": [], "client": ("2001:db8:9:9:1:2:3:4", 1)}
+    assert ip_cliente(scope, trust_proxy=False) == "2001:db8:9:9::/64"

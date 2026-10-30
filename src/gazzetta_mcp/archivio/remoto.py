@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import functools
+import ipaddress
 import logging
 import math
 import os
@@ -205,6 +206,27 @@ class TokenBucket:
             wait = 0.0 if ok else (1.0 - tokens) / self._rate
         return ok, wait
 
+    def rimborsa(self, key: str) -> None:
+        """Give back one token (an operation that cost nothing after all)."""
+        with self._lock:
+            if key in self._buckets:
+                tokens, last = self._buckets[key]
+                self._buckets[key] = (min(self._burst, tokens + 1.0), last)
+
+
+def _normalizza_ip(testo: str) -> str:
+    """One bucket per IPv6 /64 (a single user holds billions of addresses); IPv4-mapped IPv6
+    addresses count as IPv4. Anything that is not an address is returned as it is."""
+    try:
+        ip = ipaddress.ip_address(testo)
+    except ValueError:
+        return testo
+    if isinstance(ip, ipaddress.IPv6Address):
+        if ip.ipv4_mapped is not None:
+            return str(ip.ipv4_mapped)
+        return str(ipaddress.ip_network(f"{ip}/64", strict=False))
+    return str(ip)
+
 
 def ip_cliente(scope: Scope, *, trust_proxy: bool) -> str:
     """Client IP from the socket; from ``X-Forwarded-For`` only if the proxy is trusted.
@@ -221,9 +243,9 @@ def ip_cliente(scope: Scope, *, trust_proxy: bool) -> str:
                 if parts:
                     ultimo = parts[-1]
         if ultimo:
-            return ultimo[:64]
+            return _normalizza_ip(ultimo[:64])
     client = scope.get("client")
-    return client[0] if client else "sconosciuto"
+    return _normalizza_ip(client[0]) if client else "sconosciuto"
 
 
 class LimiteRichieste:
@@ -701,7 +723,7 @@ def create_app(
 def _parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="python -m gazzetta_mcp.archivio.remoto",
-        description="Servizio MCP remoto in sola lettura sull'archivio centrale.",
+        description="Servizio MCP remoto sull'archivio centrale (letture in sola lettura).",
     )
     p.add_argument("--host", default="127.0.0.1", help="indirizzo di ascolto (default 127.0.0.1)")
     p.add_argument("--port", type=int, default=8080, help="porta (default 8080)")
@@ -758,6 +780,9 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _crea_riempitore(args: argparse.Namespace, serie: Sequence[Serie]) -> Riempitore:
+    # The client libraries log every URL at INFO: it would put the codes asked for in the logs.
+    for nome in ("httpx", "httpcore"):
+        logging.getLogger(nome).setLevel(logging.WARNING)
     """The fill-on-request machinery: its own write connection and the one source client."""
     from ..config import Settings
     from ..parsing import GuParser

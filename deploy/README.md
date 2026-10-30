@@ -398,7 +398,8 @@ serie scrivi un elenco, per esempio `--serie SG,S1`; senza l'opzione le serie so
 
 ### `--riempi`: recuperare al volo un atto mancante (spento di default)
 
-Con `--riempi` (da aggiungere alla riga `ExecStart`, insieme a `--serie`, che diventa obbligatoria) un atto chiesto con `leggi_atto_archivio` e non ancora archiviato viene preso dalla Gazzetta Ufficiale, archiviato e restituito. E' spento di default perche' e' l'unico caso in cui il servizio pubblico scrive: usa una seconda connessione, mentre le letture restano in sola lettura. Limiti: 1 richiesta al secondo verso la fonte, un atto alla volta (coda di 20, poi "riprova tra poco"), 5 atti nuovi all'ora per IP e 60 in tutto (`--riempi-ip-ora`, `--riempi-ora`, `--riempi-coda`), pausa automatica dopo errori ripetuti della fonte.
+Con `--riempi` (da aggiungere alla riga `ExecStart`, insieme a `--serie`, che diventa obbligatoria) un atto chiesto con `leggi_atto_archivio` e non ancora archiviato viene preso dalla Gazzetta Ufficiale, archiviato e restituito. E' spento di default perche' e' l'unico caso in cui il servizio pubblico scrive: usa una seconda connessione, mentre le letture restano in sola lettura. Limiti: 1 richiesta al secondo verso la fonte, un atto alla volta (coda di 20, poi "riprova tra poco"), 5 atti nuovi all'ora per IP e 60 in tutto (`--riempi-ip-ora`, `--riempi-ora`, `--riempi-coda`), pausa automatica dopo errori ripetuti della fonte. Un codice o una data inesistenti non contano come errore della fonte e, se non costano richieste, non consumano i tetti.
+**Con `--riempi` serve anche `--trust-proxy` dietro Caddy**: senza, tutti gli utenti sembrano avere lo stesso IP e il tetto per IP (5 all'ora) vale per tutti insieme. Gli indirizzi IPv6 della stessa rete (/64) contano come uno. Il tetto globale (60 all'ora) protegge la fonte ma, ruotando molti indirizzi, qualcuno puo' esaurirlo e impedire i riempimenti agli altri: e' il compromesso scelto.
 Rischi: l'utente del servizio deve poter scrivere il file dell'archivio (il kit gia' lo consente nella cartella dati); chiunque puo' far crescere l'archivio e far lavorare la fonte, entro quei tetti; e' proprio lo scenario di cui tenere conto nella valutazione sui dati personali (`docs/privacy/valutazione-gdpr.md`). Non accenderlo senza aver letto quel documento.
 
 ---
@@ -768,8 +769,9 @@ Il motivo e' la modalita' **WAL** di SQLite (usata dall'archivio): per leggere, 
 lettura, SQLite deve poter creare/scrivere due file di appoggio (`-wal` e `-shm`) accanto al
 database. Quindi il servizio non puo' avere la cartella dati in sola lettura (`ReadOnlyPaths=`
 farebbe fallire le letture quando il file di appoggio manca). Che non possa scrivere davvero
-nell'archivio e' garantito altrove: il programma lo apre con `mode=ro` e `query_only`, ed e'
-verificato dai test del progetto. Il gruppo comune serve perche' se uno dei due ricrea un file
+nell'archivio e' garantito altrove: il programma apre le letture con `mode=ro` e `query_only`, ed e'
+verificato dai test del progetto. **Con `--riempi` il servizio ha una seconda connessione in
+scrittura** (solo per quel percorso): la sola lettura vale allora per le letture, non per tutto. Il gruppo comune serve perche' se uno dei due ricrea un file
 d'appoggio l'altro possa comunque usarlo.
 
 Rimane scrivibile da `gazzetta-web` la sola cartella dati (e nient'altro nel disco: il resto e'

@@ -32,7 +32,7 @@ from datetime import date
 from ..cache.sqlite import SqliteCache
 from ..config import Settings
 from ..interfaces import Parser, SourceClient
-from ..models import ATTO_URL_SEGMENT, RawPage, Serie, SommarioVoce
+from ..models import ATTO_URL_SEGMENT, Atto, RawPage, Serie, SommarioVoce
 from ..parsing import ParseError
 from ..service import GazzettaService
 from ..sources.gu import GuError, GuHttpError, GuNotFoundError
@@ -92,10 +92,12 @@ class _ClienteContato:
         self._massimo = massimo
         self.richieste = 0
         self.errore_http = False
+        self._schede: dict[tuple[str, date, Serie], RawPage] = {}
 
     def nuovo_lavoro(self) -> None:
         self.richieste = 0
         self.errore_http = False
+        self._schede = {}
 
     async def _conta(self, coro_fn: Callable[[], object]) -> RawPage:
         if self.richieste >= self._massimo:
@@ -111,7 +113,12 @@ class _ClienteContato:
         return await self._conta(lambda: self._client.get_feed(serie))
 
     async def get_atto_scheda(self, codice: str, data: date, serie: Serie) -> RawPage:
-        return await self._conta(lambda: self._client.get_atto_scheda(codice, data, serie))
+        chiave = (codice, data, serie)
+        if chiave not in self._schede:  # asked twice in one job (check, then download): once
+            self._schede[chiave] = await self._conta(
+                lambda: self._client.get_atto_scheda(codice, data, serie)
+            )
+        return self._schede[chiave]
 
     async def get_atto_testo(
         self, codice: str, data: date, serie: Serie, tipo: str | None
@@ -212,7 +219,7 @@ class Riempitore:
                 return Esito(LIMITE, MSG_LIMITE_IP.format(n=self._per_ip_ora))
             if not self._bucket_globale.allow("*")[0]:
                 return Esito(LIMITE, MSG_LIMITE_GLOBALE)
-            task = asyncio.get_running_loop().create_task(self._lavora(codice, serie, data))
+            task = asyncio.get_running_loop().create_task(self._lavora(codice, serie, data, ip))
             self._in_corso[codice] = task
             task.add_done_callback(lambda _t, c=codice: self._in_corso.pop(c, None))
         # Whoever else asks for the same code just waits for this job: one request to the source.
@@ -223,7 +230,7 @@ class Riempitore:
 
     # -- the job --------------------------------------------------------------------------
 
-    async def _lavora(self, codice: str, serie: Serie | None, data: date | None) -> Esito:
+    async def _lavora(self, codice: str, serie: Serie | None, data: date | None, ip: str) -> Esito:
         async with self._lock:
             if self._clock() < self._aperto_fino:  # the breaker opened while we were queued
                 return Esito(RIPROVA, MSG_RIPROVA)
@@ -246,6 +253,11 @@ class Riempitore:
                     return Esito(RIPROVA, MSG_RIPROVA)
             else:
                 self._errori = self._aperture = 0
+            if esito.stato == NON_TROVATO and self._client.richieste == 0:
+                # Answered without asking the source: it cost nothing, so it must not burn the
+                # hourly caps (otherwise made-up codes would exhaust them for everyone).
+                self._bucket_ip.rimborsa(ip)
+                self._bucket_globale.rimborsa("*")
             return esito
 
     def _registra_errore(self) -> None:
@@ -275,6 +287,13 @@ class Riempitore:
         if s not in self._consentite or ATTO_URL_SEGMENT.get(s) is None:
             return Esito(NON_TROVATO)  # never archived: not served, or no known text URL
         try:
+            # The site answers 200 with a generic page for a code or date that does not exist, and
+            # then fails on the following pages: look at the title first, so a wrong code is
+            # "not found" and never counts as a failure of the source.
+            scheda = await self._client.get_atto_scheda(codice, d, s)
+            vuota = self._parser.parse_atto(scheda.content, b"", codice, s, d, self._base)
+            if not vuota.titolo.strip():
+                return Esito(NON_TROVATO)
             atto = await _scarica_atto(
                 self._client,  # type: ignore[arg-type]
                 self._parser,
@@ -291,6 +310,10 @@ class Riempitore:
         if atto is None or not atto.titolo.strip():  # empty or partial: never saved
             return Esito(NON_TROVATO)
         atto = replace(atto, numero_gu=atto.numero_gu or None)
+        # Writing waits for SQLite if a scheduled job holds the file: do it off the event loop.
+        return await asyncio.to_thread(self._salva, codice, atto)
+
+    def _salva(self, codice: str, atto: Atto) -> Esito:
         # Same steps as the scheduled ingestion: one transaction for the act, then its links.
         if self._scrittore.has_atto(codice):
             salvato = self._scrittore.sostituisci_atto(atto, fonte="gu", completo=True)

@@ -24,6 +24,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the remote service can be limited to some series (`--serie SG`).
 - `deploy/`: runbook, Caddy, systemd units and backup script for a small Linux server.
 - `docs/privacy/`: draft privacy notice and GDPR assessment (to be completed and reviewed).
+- Fill on request for the remote service (`--riempi`, off by default, needs `--serie`): an act that is
+  asked for and not archived is taken from the Gazzetta, archived and returned. One request per
+  second to the source, one job at a time, hourly caps per IP (IPv6 by /64) and overall, a wrong
+  code never counts as a failure of the source.
+- A test of the whole chain over a real local HTTP connection (client and remote service).
 
 ### Changed
 
