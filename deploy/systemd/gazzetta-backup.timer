@@ -1,0 +1,13 @@
+# Ogni giorno alle 06:30 (ora del server): dopo l'aggiornamento delle 05:30.
+# Se l'aggiornamento e' ancora in corso la copia e' comunque consistente (vedi backup.sh).
+
+[Unit]
+Description=Archivio Gazzetta Ufficiale - copia di sicurezza (orario)
+
+[Timer]
+OnCalendar=*-*-* 06:30:00
+RandomizedDelaySec=600
+Persistent=true
+
+[Install]
+WantedBy=timers.target

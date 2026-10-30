@@ -1,0 +1,45 @@
+# Copia di sicurezza consistente dell'archivio (vedi backup.sh). Copia in /etc/systemd/system/.
+
+[Unit]
+Description=Archivio Gazzetta Ufficiale - copia di sicurezza
+OnFailure=gazzetta-avviso@%n.service
+
+[Service]
+Type=oneshot
+User=gazzetta
+Group=gazzetta-dati
+# La copia deve poter essere letta da chi accede via SSH per scaricarla (vedi README).
+UMask=0022
+EnvironmentFile=/etc/gazzetta-archivio/variabili.env
+ExecStart=/usr/local/lib/gazzetta-archivio/backup.sh
+RuntimeMaxSec=3h
+Nice=15
+IOSchedulingClass=idle
+
+MemoryHigh=500M
+MemoryMax=700M
+TasksMax=50
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX
+SystemCallFilter=@system-service
+SystemCallArchitectures=native
+# Serve scrivere nella cartella dati (file di appoggio di SQLite) e nelle copie.
+ReadWritePaths=/var/lib/gazzetta-archivio /var/backups/gazzetta-archivio
+InaccessiblePaths=/root /home
