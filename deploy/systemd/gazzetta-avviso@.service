@@ -1,5 +1,5 @@
 # Parte da sola quando un'altra unita' fallisce (OnFailure=gazzetta-avviso@%n.service).
-# Scrive nel registro di sistema e, se in variabili.env c'e' AVVISO_URL, manda anche l'avviso li'.
+# Scrive nel registro di sistema e, se in /etc/gazzetta-archivio/avviso.env c'e' AVVISO_URL, manda anche l'avviso li'.
 # Il nome dopo la @ e' l'unita' fallita. Copia in /etc/systemd/system/.
 
 [Unit]
@@ -9,7 +9,9 @@ Description=Archivio Gazzetta Ufficiale - avviso per %I
 Type=oneshot
 User=gazzetta
 Group=gazzetta-dati
-EnvironmentFile=/etc/gazzetta-archivio/variabili.env
+# File a parte (il "-" lo rende facoltativo): AVVISO_URL puo' contenere un token, quindi sta
+# in un file leggibile solo da root (systemd lo legge come root), non in variabili.env.
+EnvironmentFile=-/etc/gazzetta-archivio/avviso.env
 ExecStart=/usr/local/lib/gazzetta-archivio/avviso.sh "Archivio Gazzetta: problema con %I. Dettagli: journalctl -u %I -n 50"
 NoNewPrivileges=true
 PrivateTmp=true

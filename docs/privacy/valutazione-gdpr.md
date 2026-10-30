@@ -40,7 +40,9 @@ cercabile a testi ufficiali pubblici. Test in tre domande:
   scontata: l'informativa pubblica e la procedura di rimozione sono il rimedio.
 - **Diritti** (artt. 15-21): rimozione su richiesta con risposta entro un mese (art. 12, par. 3),
   già realizzata tecnicamente (`python -m gazzetta_mcp.archivio rimuovi`), con blocco del
-  riscaricamento.
+  riscaricamento e registro delle rimozioni (codice, motivo breve, data; nessun testo, nessun
+  dato di chi chiede). Le copie di sicurezza già fatte non vengono toccate: dopo un ripristino la
+  rimozione va ripetuta (procedura in `deploy/README.md`).
 - **Minimizzazione e limitazione** (art. 5): non archiviare ciò che non serve alla finalità.
 - **Sicurezza** (art. 32): accesso in sola lettura, limiti di richieste, TLS, nessun log del testo
   delle ricerche, backup protetti.
@@ -59,7 +61,7 @@ rimozione con blocco dei ritorni, avvertenza "non ufficiale" in ogni risposta, a
 
 | Scelta | Rischio | Lavoro |
 |---|---|---|
-| **A. Prudente:** solo Serie Generale e Normattiva; fuori Parte II e S4 | basso | nessuno oltre a filtrare le serie nel servizio pubblico |
+| **A. Prudente:** solo Serie Generale e Normattiva; fuori Parte II e S4 | basso | fatto il filtro nel servizio; limitare anche l'acquisizione (in arrivo) |
 | B. Tutto, come nella decisione 090 | alto | richiesta di rimozione sempre pronta, valutazione d'impatto, parere esperto |
 | C. Nessun accesso pubblico | nullo | l'archivio resta per uso privato |
 
@@ -71,7 +73,10 @@ difficile.
 
 1. Decidere la scelta (titolare del progetto).
 2. Completare `informativa.md`: contatto, fornitore e paese, tempo di conservazione dei backup, data.
-3. Mettere un filtro sulle serie nel servizio pubblico (ambito A), con test.
+3. Filtro sulle serie nel servizio pubblico (ambito A): **implementato** (opzione `--serie SG`, di
+   serie nell'unità systemd). L'acquisizione automatica limitata alla sola Serie Generale è **in
+   arrivo** in un altro lavoro: finché non c'è, le altre serie possono essere scaricate e stare nel
+   file, ma il servizio non le mostra. La rimozione su richiesta è **implementata**.
 4. Verificare i log del server web: nessun IP o contenuto di ricerca conservato oltre il necessario.
 5. Far leggere questa valutazione e l'informativa a una persona competente.
 6. Pubblicare l'informativa e collegarla dal README e dalle risposte del servizio.
