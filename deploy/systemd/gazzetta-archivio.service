@@ -19,6 +19,9 @@ Group=gazzetta-dati
 # Stessa maschera di tutti gli altri lavori: i file creati sono leggibili e scrivibili dal
 # gruppo gazzetta-dati (vedi README, "Perche' due utenti e un gruppo").
 UMask=0007
+# Tetto ai caratteri di testo di un atto per risposta (GAZZETTA_MCP_MAX_CHARS, letto da remoto.py;
+# default del codice 20000). Un valore in variabili.env, che segue, lo sostituisce.
+Environment=GAZZETTA_MCP_MAX_CHARS=100000
 EnvironmentFile=/etc/gazzetta-archivio/variabili.env
 ExecStart=/opt/gazzetta-mcp/venv/bin/python -m gazzetta_mcp.archivio.remoto \
     --host 127.0.0.1 --port 8080 \

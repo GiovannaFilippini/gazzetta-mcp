@@ -4,6 +4,10 @@
 # (utente "gazzetta"). Si puo' lanciare anche a mano:
 #   sudo -u gazzetta /usr/local/lib/gazzetta-archivio/backup.sh
 #
+# Attenzione: con umask 0022 le copie sono leggibili da TUTTI gli utenti locali del server e
+# contengono l'intero archivio. Su un server con un solo amministratore va bene; se non e' cosi',
+# restringi i permessi (umask 0027 e cartella di gruppo) o la cartella.
+#
 # Perche' ".backup" e non "cp": l'archivio e' in modalita' WAL e un aggiornamento puo' essere in
 # corso. Copiare il file con cp puo' dare una copia rotta; il comando ".backup" di sqlite3
 # produce invece una copia coerente anche mentre qualcuno scrive.
@@ -35,11 +39,12 @@ TMP="$CARTELLA/.in-corso-$OGGI.sqlite3"
 FINALE="$CARTELLA/archivio-$OGGI.sqlite3.gz"
 rm -f "$TMP"
 
-# Spazio: serve circa quanto l'archivio (la copia viene poi compressa).
+# Spazio: serve circa 2,2 volte l'archivio (la copia grezza piu' quella compressa .gz, che
+# per un momento stanno insieme sul disco).
 DIM_KB="$(du -k "$ARCHIVIO" | cut -f1)"
 LIBERO_KB="$(df -Pk "$CARTELLA" | awk 'NR==2 {print $4}')"
-if [ "$LIBERO_KB" -lt "$((DIM_KB + DIM_KB / 10))" ]; then
-    echo "Spazio insufficiente per la copia (servono ~${DIM_KB} KB, liberi ${LIBERO_KB} KB)." >&2
+if [ "$LIBERO_KB" -lt "$((DIM_KB * 22 / 10))" ]; then
+    echo "Spazio insufficiente per la copia (servono ~$((DIM_KB * 22 / 10)) KB, liberi ${LIBERO_KB} KB)." >&2
     exit 1
 fi
 

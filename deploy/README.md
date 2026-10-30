@@ -246,13 +246,16 @@ sudo uv venv --python /usr/bin/python3 /opt/gazzetta-mcp/venv
 
 Poi **una** di queste due, a seconda del caso:
 
-**A) Da GitHub** (oggi, perche' la parte archivio non e' ancora su PyPI):
+**A) Da GitHub** (oggi, perche' la parte archivio non e' ancora su PyPI). Installa un **tag
+fissato**, non il ramo: cosi' sai esattamente quale versione gira e un cambiamento sul ramo non
+arriva sul server senza che tu lo voglia. Per esempio, quando esistera' il tag `v0.3.0`:
 
 ```
-sudo uv pip install --python /opt/gazzetta-mcp/venv/bin/python "git+https://github.com/GiovannaFilippini/gazzetta-mcp.git"
+sudo uv pip install --python /opt/gazzetta-mcp/venv/bin/python "git+https://github.com/GiovannaFilippini/gazzetta-mcp.git@v0.3.0"
 ```
 
-(Per fissare una versione precisa aggiungi `@NOME-DEL-TAG` o `@CODICE-DEL-COMMIT` dopo `.git`.)
+(Usa il nome del tag che esiste davvero; in alternativa `@CODICE-DEL-COMMIT`. Senza `@...` si
+installa il ramo principale: sconsigliato in produzione.)
 
 **B) Da PyPI** (quando esce una versione che contiene l'archivio):
 
@@ -267,7 +270,7 @@ Verifica che l'archivio ci sia:
 ```
 
 **Cosa dovresti vedere:** un testo d'aiuto con i comandi `aggiorna`, `recupera`, `controlla`,
-`stato`. Se dice `No module named gazzetta_mcp.archivio`, hai installato una versione troppo
+`stato`, `rimuovi`, `rimossi`. Se dice `No module named gazzetta_mcp.archivio`, hai installato una versione troppo
 vecchia (la 0.2.0 di PyPI): usa la via A.
 
 Il programma richiede Python 3.10 o piu' recente; Debian 12 e Ubuntu 22.04 lo hanno gia'.
@@ -299,7 +302,10 @@ sudo nano /etc/gazzetta-archivio/variabili.env
 
 Cambia **almeno** `contatto@example.org` nella riga `GAZZETTA_MCP_USER_AGENT` con la tua email
 vera. Le altre righe vanno bene cosi' (sono spiegate nel file). Le variabili sono quelle che il
-codice legge davvero; `AVVISO_URL` e' del kit e si compila dopo (vedi "Monitoraggio minimo").
+codice legge davvero. **Attenzione:** il comando `gazzetta-archivio` legge questo file come
+script di shell: metti tra apici singoli i valori con spazi o simboli e non usare senza apici
+`&`, `;`, `$` e simili (dettagli in testa al file). L'indirizzo degli avvisi (`AVVISO_URL`) non
+va qui ma in un file a parte, vedi "Monitoraggio minimo".
 
 Poi fai rileggere i servizi:
 
@@ -538,10 +544,26 @@ controllo del parser, copia, disco) parte `gazzetta-avviso@.service`, che scrive
 - Il piu' semplice e' un servizio di notifiche con indirizzo "a cui scrivere" (per esempio
   [ntfy.sh](https://ntfy.sh): scegli un nome di argomento lungo e difficile da indovinare e
   installa l'app sul telefono). L'indirizzo e' `https://ntfy.sh/IL-TUO-ARGOMENTO`.
-- Mettilo in `sudo nano /etc/gazzetta-archivio/variabili.env` alla riga `AVVISO_URL=...`.
+- L'indirizzo puo' contenere un token (chi lo conosce puo' scrivere sul tuo telefono), quindi
+  **non** va in `variabili.env`, che leggono molte unita' e il comando `gazzetta-archivio`. Mettilo
+  in un file a parte, letto solo dall'unita' degli avvisi (`gazzetta-avviso@.service`):
+
+  ```
+  sudo install -o root -g root -m 0600 /dev/null /etc/gazzetta-archivio/avviso.env
+  sudo nano /etc/gazzetta-archivio/avviso.env
+  ```
+
+  con una sola riga, `AVVISO_URL=https://ntfy.sh/IL-TUO-ARGOMENTO` (se contiene `&`, `;` o `$`
+  metti l'indirizzo tra apici singoli), poi `sudo systemctl daemon-reload`. Senza questo file gli
+  avvisi vanno solo nel registro di sistema. Se avevi gia' messo `AVVISO_URL` in `variabili.env`,
+  toglilo da la'.
 - Prova: `sudo -u gazzetta env AVVISO_URL=https://ntfy.sh/IL-TUO-ARGOMENTO /usr/local/lib/gazzetta-archivio/avviso.sh "prova"` (dovrebbe arrivare la notifica).
 
 (L'avviso e' un messaggio di testo con il nome dell'unita': non contiene dati dell'archivio.)
+
+Miglioria da fare: oggi tutte le altre unita' leggono ancora `variabili.env`; sarebbe meglio
+dividere la configurazione in un file senza segreti e uno riservato, ma non e' banale e non e'
+stato fatto. Per ora basta tenere `AVVISO_URL` fuori da `variabili.env`.
 
 ---
 
@@ -552,7 +574,10 @@ controllo del parser, copia, disco) parte `gazzetta-avviso@.service`, che scrive
 controlla che la copia sia integra, la comprime in
 `/var/backups/gazzetta-archivio/archivio-AAAA-MM-GG.sqlite3.gz` e tiene le **ultime 7** (numero
 cambiabile con `COPIE_DA_TENERE` nel file di configurazione). Il collegamento `ultimo.sqlite3.gz`
-punta all'ultima. Controlla lo spazio prima di cominciare: serve libero circa quanto l'archivio.
+punta all'ultima. Controlla lo spazio prima di cominciare: servono liberi circa **2,2 volte**
+l'archivio (la copia grezza piu' quella compressa). **Le copie sono leggibili da tutti gli utenti
+locali** del server (permessi 0644) e contengono l'intero archivio: va bene se l'unico utente sei
+tu, altrimenti restringi i permessi della cartella `/var/backups/gazzetta-archivio`.
 
 **Provalo subito** (non aspettare la notte):
 
@@ -570,7 +595,7 @@ rompe o viene cancellato. Porta fuori regolarmente (almeno una volta a settimana
 1. `/var/backups/gazzetta-archivio/ultimo.sqlite3.gz`, cioe' l'archivio (in teoria si puo'
    rifare da capo dalle fonti, ma ci vogliono settimane).
 2. `/etc/gazzetta-archivio/variabili.env` (la configurazione; contiene l'email e l'eventuale
-   `AVVISO_URL`).
+   `AVVISO_URL` se non l'hai messo nel file `avviso.env`).
 3. Questo kit (e' nel repository GitHub, non serve copiarlo) e il tuo `Caddyfile` modificato
    (`/etc/caddy/Caddyfile`).
 
@@ -591,6 +616,11 @@ sicurezza li contengono ancora. Tieni quindi poche copie e per poco tempo, e can
 vecchie anche fuori dal server.
 
 ### Ripristino
+
+**Attenzione se hai fatto delle rimozioni:** una copia precedente alla rimozione contiene ancora
+gli atti rimossi, che con il ripristino **rientrano**. Dopo ogni ripristino rilancia `rimuovi --si`
+per **tutti** i codici del registro delle rimozioni (vedi "Cancellare dati su richiesta"): tieni
+quindi un elenco dei codici e dei motivi anche fuori dall'archivio, senza dati di chi ha chiesto.
 
 Da una copia `archivio-AAAA-MM-GG.sqlite3.gz` (se e' sul tuo computer, riportala sul server con
 `scp archivio-AAAA-MM-GG.sqlite3.gz UTENTE@IP-DEL-SERVER:/tmp/`):
@@ -616,10 +646,11 @@ Se le versioni del programma sono diverse (schema vecchio), `stato` aggiorna lo 
 ## Aggiornare il programma a una versione nuova
 
 Fallo quando esce una nuova versione (leggi il `CHANGELOG.md` per vedere cosa cambia). Prima fai
-una copia (`sudo systemctl start gazzetta-backup.service`). Poi, **da GitHub** (oggi):
+una copia (`sudo systemctl start gazzetta-backup.service`). Poi, **da GitHub** (oggi), indicando il **tag** della nuova versione (per esempio `@v0.3.0`, quando
+esistera'), non il ramo:
 
 ```
-sudo uv pip install --python /opt/gazzetta-mcp/venv/bin/python --upgrade --reinstall-package gazzetta-mcp "git+https://github.com/GiovannaFilippini/gazzetta-mcp.git"
+sudo uv pip install --python /opt/gazzetta-mcp/venv/bin/python --upgrade --reinstall-package gazzetta-mcp "git+https://github.com/GiovannaFilippini/gazzetta-mcp.git@v0.3.0"
 ```
 
 oppure **da PyPI**: `sudo uv pip install --python /opt/gazzetta-mcp/venv/bin/python --upgrade gazzetta-mcp`.
@@ -671,20 +702,52 @@ copie esterne.
 ## Cancellare dati su richiesta
 
 Se qualcuno chiede la rimozione di un testo che contiene suoi dati personali (decisione 090,
-sezione "Dati personali"), serve una procedura di rimozione. Il comando **`rimuovi`** di
-`python -m gazzetta_mcp.archivio` e' **previsto** (in arrivo in un altro lavoro): non e' ancora
-disponibile e qui non se ne descrivono le opzioni. Quando sara' pronto, l'uso a mano sara' del
-tipo `sudo gazzetta-archivio rimuovi ...` (il comando `gazzetta-archivio` di questo kit passa gli
-argomenti cosi' come li riceve).
+sezione "Dati personali"), si usa il comando **`rimuovi`** di `python -m gazzetta_mcp.archivio`.
+Si lancia **solo** tramite il comando del kit `gazzetta-archivio`, che prende il lucchetto e cosi'
+non si sovrappone a aggiornamento e recupero (mai `python -m ...` a mano).
 
-Quello che questo kit gia' ti ricorda di fare, qualunque sia il comando:
+**Comandi** (tutti con `sudo gazzetta-archivio ...`):
 
-- cancellare l'atto dall'archivio **e** impedire che il recupero lo riscarichi (dettaglio di
-  `rimuovi`, da leggere nella sua guida quando uscira');
-- eliminare le vecchie copie di sicurezza che lo contengono, sul server e fuori;
-- tenere un registro minimo (data, richiesta, esito) senza copiare il dato che si cancella;
-- rispondere alla persona entro i tempi di legge (questione legale, non tecnica: se non sai
-  come, chiedi consiglio prima di aprire al pubblico).
+| Comando | Cosa fa |
+|---|---|
+| `rimuovi CODICE [CODICE...] --motivo VALORE` | **Anteprima**: mostra gli atti trovati (data e titolo), non cambia nulla |
+| `rimuovi CODICE [CODICE...] --motivo VALORE --si` | **Cancella** gli atti (testo, indice di ricerca, relazioni), li segna come rimossi cosi' il recupero non li riscarica, e compatta il file (VACUUM) |
+| `rimossi` | Elenca il registro: codice, data, motivo (mai testi) |
+| `stato` | Mostra tra l'altro `atti_rimossi`, il numero di rimozioni registrate |
+
+Un codice non archiviato viene comunque registrato come rimosso (non sara' mai acquisito).
+
+**Procedura passo per passo:**
+
+1. Trova il codice dell'atto (per esempio `26A05182`) e fai l'anteprima:
+   `sudo gazzetta-archivio rimuovi 26A05182 --motivo richiesta-interessato`. Controlla che titolo
+   e data siano quelli giusti.
+2. **Ferma il servizio web**: `sudo systemctl stop gazzetta-archivio`. Un lettore ancora aperto
+   (il servizio) impedisce di pulire davvero il file; il comando dara' un errore se non ci
+   riesce [questo controllo sara' aggiunto da un altro lavoro: finche' non e' integrato, non
+   fidarti di un esito "ok" se il servizio era acceso].
+3. Controlla che ci sia **spazio libero almeno pari alla dimensione dell'archivio** nella cartella
+   dati (`df -h /var/lib/gazzetta-archivio`): il VACUUM riscrive il file.
+4. Cancella: `sudo gazzetta-archivio rimuovi 26A05182 --motivo richiesta-interessato --si`.
+5. **Riavvia il servizio**: `sudo systemctl start gazzetta-archivio`. Verifica con
+   `sudo gazzetta-archivio rimossi`.
+6. Elimina o sostituisci le **copie di sicurezza** che contengono ancora l'atto
+   (`/var/backups/gazzetta-archivio`, e quelle fuori dal server). Il comando non le tocca.
+7. Comunica l'esito all'interessato **entro un mese** dalla richiesta (impegno organizzativo,
+   art. 12 del Regolamento; se non sai come, chiedi consiglio).
+
+**Il motivo.** Valori ammessi: `richiesta-interessato`, `errore`, `altro` [saranno imposti dal
+codice in un altro lavoro; finche' non e' integrato, usa comunque solo questi]. Nel motivo **mai
+nome o email** di chi ha chiesto: il registro finisce anche nelle copie di sicurezza. Le richieste
+(chi, quando, esito) tienile in un registro tuo, fuori dall'archivio.
+
+**Dopo un ripristino da backup.** Una copia precedente alla rimozione fa rientrare gli atti
+cancellati. Dopo ogni ripristino rilancia `rimuovi --si` per **tutti** i codici del registro che
+tieni a parte (quello dentro la copia ripristinata potrebbe non contenere le rimozioni piu'
+recenti). Prima di ripristinare, salva l'elenco con `sudo gazzetta-archivio rimossi`.
+
+**Il server locale degli utenti** ha una sua cache che non possiamo cancellare (vedi
+l'informativa).
 
 ---
 

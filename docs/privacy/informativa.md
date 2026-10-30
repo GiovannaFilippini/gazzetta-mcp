@@ -1,8 +1,12 @@
 # Informativa sulla protezione dei dati personali — archivio gazzetta-mcp
 
 > BOZZA. Va completata (segnaposto tra parentesi quadre) e fatta rileggere da una persona esperta
-> prima di aprire l'archivio al pubblico. Vale solo per il servizio remoto dell'archivio; il server
-> locale installato sul proprio computer non invia dati a nessuno.
+> prima di aprire l'archivio al pubblico. Vale per il servizio remoto dell'archivio. Il server
+> locale installato sul proprio computer, di serie, non invia dati a nessuno. Fa eccezione la
+> funzione facoltativa che lo collega al servizio remoto: è **spenta di default** e si accende
+> solo se chi lo usa imposta `GAZZETTA_MCP_ARCHIVIO_URL`. In quel caso il server locale invia al
+> servizio il testo delle ricerche (al massimo 200 caratteri) e i codici degli atti che si
+> leggono, insieme all'indirizzo IP di rete (vedi «Cosa NON facciamo»).
 
 ## Chi tratta i dati
 
@@ -17,8 +21,10 @@ licenza CC BY 4.0). Questi testi possono contenere dati personali, per esempio i
 nominato o incaricato in un decreto. I dati non sono raccolti dalle persone interessate: vengono dalle
 fonti pubbliche indicate.
 
-Portata attuale: **[Serie Generale e Normattiva]**. Non sono inclusi la Parte II (inserzioni) e i
-concorsi con graduatorie, salvo diversa comunicazione su questa pagina.
+Portata: **solo la Serie Generale della Gazzetta Ufficiale e gli atti normativi di Normattiva**.
+Il servizio acquisisce e mostra solo questi. Non sono inclusi la Parte II (inserzioni), i concorsi
+(con le graduatorie) e le altre serie, salvo diversa comunicazione su questa pagina. Se in passato
+altri testi fossero stati archiviati per prova, non sono comunque consultabili tramite il servizio.
 
 ## Perché e con quale base giuridica
 
@@ -32,9 +38,15 @@ concorsi con graduatorie, salvo diversa comunicazione su questa pagina.
 ## Cosa NON facciamo
 
 - L'archivio non è indicizzato dai motori di ricerca: si interroga solo con strumenti MCP.
-- Non conserviamo il testo delle ricerche. Per limitare gli abusi si tiene in memoria, per pochi
+- Non conserviamo il testo delle ricerche né i codici degli atti letti. Per limitare gli abusi si tiene in memoria, per pochi
   minuti, un contatore di richieste per indirizzo IP; non viene scritto su disco.
   **[DA VERIFICARE ALLA MESSA IN OPERA: nessun log del server web con gli IP, o conservazione breve]**
+
+**Se usa il server locale collegato al servizio.** Solo se imposta `GAZZETTA_MCP_ARCHIVIO_URL`
+(è spento di default), le ricerche che fa e i codici degli atti che apre vengono inviati al
+servizio per avere la risposta, come ogni richiesta web arriva con il suo indirizzo IP. Il
+servizio li usa per rispondere e non li conserva. Se non imposta quella variabile, il server
+locale non contatta il servizio.
 
 ## Con chi sono condivisi
 
@@ -47,6 +59,11 @@ fornitore dell'infrastruttura **[NOME FORNITORE E PAESE]**, che tratta i dati pe
 Gli atti restano nell'archivio finché sono pubblicati dalla fonte, salvo richiesta di rimozione
 accolta. Le copie di sicurezza (backup) sono conservate per **[N giorni]** e poi eliminate.
 
+Di ogni rimozione si conserva un **registro** con il codice dell'atto, un motivo breve e la data.
+Il registro non contiene il testo dell'atto né dati di chi ha fatto la richiesta (nome, email); serve
+a non riscaricare l'atto e a ripetere la rimozione se si ripristina una copia di sicurezza. Il
+registro è presente anche nelle copie di sicurezza.
+
 ## I suoi diritti
 
 Può chiedere l'accesso ai dati, la rettifica, la **cancellazione**, la limitazione e può **opporsi**
@@ -56,8 +73,11 @@ indicando il codice dell'atto (per esempio `26A05182`) o il link ufficiale, e il
 - Rispondiamo **entro un mese**.
 - Se la richiesta è accolta, l'atto viene **cancellato dall'archivio e non viene più riscaricato**; i
   dati restano nella fonte ufficiale, che non dipende da noi.
-- Le copie già scaricate da chi usa il server locale, e le copie di sicurezza già fatte, si
-  aggiornano al ciclo successivo; non possiamo cancellare le copie altrui.
+- Non possiamo né aggiornare né cancellare le copie che si trovano nella memoria locale
+  (cache) di chi usa il server locale sul proprio computer, né le copie di sicurezza già fatte da
+  altri. Le copie di sicurezza nostre vengono eliminate alla scadenza indicata sopra, e se se ne
+  ripristina una si ripete la rimozione. Dalla prossima versione del programma, gli atti letti
+  dal servizio remoto non verranno più salvati nella cache locale.
 
 Può inoltre proporre reclamo al Garante per la protezione dei dati personali (garanteprivacy.it).
 

@@ -5,7 +5,13 @@
 #   sudo gazzetta-archivio stato
 #   sudo gazzetta-archivio aggiorna
 #   sudo gazzetta-archivio recupera --serie SG
-# (il comando "rimuovi" per cancellare dati su richiesta e' previsto, vedi README)
+#   sudo gazzetta-archivio rimossi
+#   sudo gazzetta-archivio rimuovi 26A05182 --motivo richiesta-interessato        (anteprima)
+#   sudo gazzetta-archivio rimuovi 26A05182 --motivo richiesta-interessato --si   (cancella)
+# Lancia SEMPRE i comandi dell'archivio tramite questo script, mai "python -m ..." a mano: qui
+# si prende il lucchetto che li serializza con l'aggiornamento e il recupero. Prima di
+# "rimuovi --si" ferma il servizio web (systemctl stop gazzetta-archivio) e riavvialo dopo:
+# vedi README, "Cancellare dati su richiesta". Nel motivo MAI nome o email di chi ha chiesto.
 
 set -eu
 set -a
