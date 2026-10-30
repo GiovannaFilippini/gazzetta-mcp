@@ -287,3 +287,38 @@ def test_short_citation_alone_is_kept_and_own_act_is_excluded_in_any_form():
         "X1", testo, escludi=["urn:nir:stato:decreto.legislativo:2006-04-24;219"]
     )
     assert all("219" not in a.a for a in escluso)
+
+
+# -- short (year-only) and full URN of the same act ---------------------------------------
+
+BREVE_165 = "urn:nir:stato:decreto.legislativo:2001;165"
+PIENO_165 = "urn:nir:stato:decreto.legislativo:2001-03-30;165"
+
+
+def test_storico_resolves_short_endpoint_to_the_archived_full_urn_act(store):
+    store.put_atto(atto("N165", "x"), fonte="normattiva", urn=PIENO_165)
+    store.put_archi([Arco("26A5", BREVE_165, "errata_corrige", "gu")])
+    assert [(x.codice, x.direzione) for x in storico(store, "N165")] == [("26A5", "agisce_su")]
+    assert [(x.codice, x.direzione) for x in storico(store, "26A5")] == [("N165", "subisce")]
+    # asking by the short URN starts from the same act
+    assert [x.codice for x in storico(store, BREVE_165)] == ["26A5"]
+
+
+def test_storico_short_endpoint_ambiguous_or_unmatched_is_left_alone(store):
+    store.put_atto(atto("N1", "x"), fonte="normattiva", urn=PIENO_165)
+    store.put_atto(atto("N2", "y"), fonte="normattiva", urn=PIENO_165.replace("03-30", "04-01"))
+    store.put_archi([Arco("26A5", BREVE_165, "modifica", "gu")])
+    assert [x.codice for x in storico(store, "N1")] == []
+    assert [x.codice for x in storico(store, "26A5")] == [BREVE_165]
+    # another number does not match either
+    store.put_archi([Arco("26A6", "urn:nir:stato:decreto.legislativo:2001;1650", "modifica", "gu")])
+    assert [x.codice for x in storico(store, "N1")] == []
+
+
+def test_salva_archi_atti_keeps_short_citation_and_does_not_rewrite_foreign_urn(store):
+    store.put_atto(atto("N165", "x"), fonte="normattiva", urn=PIENO_165)
+    a = atto("26G1", "LEGGE 5 agosto 2026, n. 140 - X", "Visto il decreto legislativo n. 165/2001.")
+    store.put_atto(a, fonte="gu")
+    salva_archi_atti(store, [a])
+    assert store.archi_di("26G1") == [Arco("26G1", BREVE_165, "cita", "gu")]
+    assert store.codice_da_urn(PIENO_165) == "N165"
