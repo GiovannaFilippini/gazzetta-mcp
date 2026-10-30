@@ -381,6 +381,15 @@ un altro proxy o una CDN davanti a Caddy senza rivedere questo punto, e non avvi
 con `--trust-proxy` senza Caddy davanti (e senza il firewall del passo 6, che impedisce di
 raggiungere direttamente la porta 8080).
 
+### Perche' `--serie SG`
+
+L'unita' systemd avvia il servizio con `--serie SG`: il servizio pubblico mostra soltanto la Serie
+Generale e gli atti di Normattiva. Le altre serie (concorsi, Parte II, ecc.) possono stare nel
+file dell'archivio, ma non compaiono in ricerche, letture, storico, conteggi o messaggi di errore;
+chiedere un atto di una serie esclusa da' lo stesso errore di un codice inesistente. La scelta
+nasce dalla valutazione sui dati personali (`docs/privacy/valutazione-gdpr.md`). Per servire piu'
+serie scrivi un elenco, per esempio `--serie SG,S1`; senza l'opzione le serie sono tutte.
+
 ---
 
 ## Passo 12. Primo riempimento e avvio

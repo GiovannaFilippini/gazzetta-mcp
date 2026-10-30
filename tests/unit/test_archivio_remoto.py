@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import sqlite3
 from datetime import date
 
@@ -19,7 +20,7 @@ from gazzetta_mcp.archivio.remoto import (
 )
 from gazzetta_mcp.archivio.store import ArchiveError, ArchiveStore
 from gazzetta_mcp.archivio.tipi import Arco
-from gazzetta_mcp.models import DISCLAIMER, Atto, Serie
+from gazzetta_mcp.models import DISCLAIMER, Atto, SearchFilters, Serie
 
 
 def make_atto(codice: str, titolo: str, testo: str, giorno: date = date(2026, 10, 3)) -> Atto:
@@ -350,3 +351,161 @@ def test_an_archive_with_an_old_schema_is_refused_with_a_clear_message(tmp_path)
     conn.close()
     with pytest.raises(ArchiveError, match="schema v1"):
         ArchivioSolaLettura(path)
+
+
+# -- series scope (--serie) ---------------------------------------------------------------
+
+
+def make_atto_serie(codice: str, serie: Serie, titolo: str, testo: str) -> Atto:
+    return dataclasses.replace(make_atto(codice, titolo, testo), serie=serie)
+
+
+@pytest.fixture
+def db_misto(tmp_path):
+    """SG and S1 acts next to excluded ones (S4 contest, P2 notice) sharing the same words."""
+    path = tmp_path / "misto.sqlite"
+    with ArchiveStore(path) as s:
+        s.put_atto(make_atto("26A00001", "Bonus edilizio", "bonus segreto " * 5), fonte="gu")
+        s.put_atto(make_atto("26A00002", "Altra legge", "concorsi generali"), fonte="gu")
+        s.put_atto(
+            make_atto_serie("26E10001", Serie.S4, "Concorso riservato", "concorsi segreto"),
+            fonte="gu",
+        )
+        s.put_atto(
+            make_atto_serie("26E10002", Serie.P2, "Avviso riservato", "concorsi segreto"),
+            fonte="gu",
+        )
+        s.put_atto(
+            make_atto_serie("26C00001", Serie.S1, "Sentenza", "concorsi sentenza"), fonte="gu"
+        )
+        s.put_atto(make_atto("26A00003", "Terza legge", "testo"), fonte="gu")
+        # 26A00002 modifies 26A00001 directly; the excluded 26E10001 modifies 26A00001 too and
+        # is itself modified by the visible 26A00003 (reachable only through the hidden act).
+        s.put_archi(
+            [
+                Arco("26A00002", "26A00001", "modifica", "gu"),
+                Arco("26E10001", "26A00001", "modifica", "gu"),
+                Arco("26A00003", "26E10001", "modifica", "gu"),
+                Arco("26A00001", "26E10002", "modifica", "gu"),
+            ]
+        )
+        s.aggiungi_numeri([(Serie.SG, date(2026, 10, 3), 230), (Serie.S4, date(2026, 10, 3), 80)])
+    return path
+
+
+@pytest.fixture
+def store_misto(db_misto):
+    s = ArchivioSolaLettura(db_misto)
+    yield s
+    s.close()
+
+
+@pytest.fixture
+async def client_sg(store_misto):
+    async with Client(create_server(store_misto, [Serie.SG])) as c:
+        yield c
+
+
+@pytest.fixture
+async def client_sg_s1(store_misto):
+    async with Client(create_server(store_misto, [Serie.SG, Serie.S1])) as c:
+        yield c
+
+
+def assert_no_leak(payload) -> None:
+    text = str(payload)
+    for hidden in ("26E10001", "26E10002", "S4", "P2", "Concorso riservato", "Avviso riservato"):
+        assert hidden not in text
+
+
+async def test_scope_search_only_returns_allowed_series(client_sg):
+    r = data_of(await client_sg.call_tool("cerca_archivio", {"testo": "concorsi segreto"}))
+    assert {x["serie"] for x in r["risultati"]} <= {"SG"}
+    assert_no_leak(r)
+    r = data_of(await client_sg.call_tool("cerca_archivio", {"testo": "segreto"}))
+    assert [x["codice"] for x in r["risultati"]] == ["26A00001"]
+    assert_no_leak(r)
+
+
+async def test_scope_search_explicit_excluded_series_is_refused(client_sg):
+    for serie in ("S4", "p2", "S1"):
+        with pytest.raises(ToolError) as exc:
+            await client_sg.call_tool("cerca_archivio", {"testo": "concorsi", "serie": serie})
+        assert "solo nelle serie: SG" in str(exc.value)
+        assert serie.upper() not in str(exc.value).replace("SG", "")
+    r = data_of(await client_sg.call_tool("cerca_archivio", {"testo": "concorsi", "serie": "sg"}))
+    assert r["numero_risultati"] == 1
+
+
+async def test_scope_search_multiple_series_merges_and_respects_limit(client_sg_s1):
+    r = data_of(await client_sg_s1.call_tool("cerca_archivio", {"testo": "concorsi"}))
+    assert {x["codice"] for x in r["risultati"]} == {"26A00002", "26C00001"}
+    assert_no_leak(r)
+    uno = data_of(
+        await client_sg_s1.call_tool("cerca_archivio", {"testo": "concorsi", "limite": 1})
+    )
+    assert uno["numero_risultati"] == 1
+    # The merged top hit is the best of the union, whatever the series it comes from.
+    assert uno["risultati"][0]["codice"] == r["risultati"][0]["codice"]
+
+
+def test_scope_merge_matches_single_search_over_the_union(store_misto):
+    unione = store_misto.cerca_in_serie("concorsi", SearchFilters(limite=2), [Serie.SG, Serie.S1])
+    tutti = store_misto.search("concorsi", SearchFilters(limite=50))
+    attesi = [h.codice for h in tutti if h.serie in (Serie.SG, Serie.S1)][:2]
+    assert [h.codice for h in unione] == attesi
+
+
+async def test_scope_read_excluded_act_looks_missing(client_sg):
+    with pytest.raises(ToolError) as missing:
+        await client_sg.call_tool("leggi_atto_archivio", {"codice": "NOPE"})
+    for codice in ("26E10001", "26E10002", "26C00001"):
+        with pytest.raises(ToolError) as hidden:
+            await client_sg.call_tool("leggi_atto_archivio", {"codice": codice})
+        assert str(hidden.value) == str(missing.value)
+    r = data_of(await client_sg.call_tool("leggi_atto_archivio", {"codice": "26A00001"}))
+    assert r["serie"] == "SG"
+
+
+async def test_scope_history_hides_excluded_nodes_and_what_hangs_from_them(client_sg):
+    r = data_of(await client_sg.call_tool("storico_atto", {"codice": "26A00001"}))
+    assert [(v["codice"], v["profondita"]) for v in r["voci"]] == [("26A00002", 1)]
+    assert_no_leak(r)
+
+
+async def test_scope_history_of_excluded_start_is_empty(client_sg):
+    r = data_of(await client_sg.call_tool("storico_atto", {"codice": "26E10001"}))
+    unknown = data_of(await client_sg.call_tool("storico_atto", {"codice": "NOPE"}))
+    assert r["voci"] == [] and r["numero_voci"] == 0
+    assert r["voci"] == unknown["voci"] and r["troncato"] == unknown["troncato"]
+
+
+async def test_scope_history_unrestricted_server_is_unchanged(store_misto):
+    async with Client(create_server(store_misto)) as c:
+        r = data_of(await c.call_tool("storico_atto", {"codice": "26A00001"}))
+    assert {"26E10001", "26A00003"} <= {v["codice"] for v in r["voci"]}
+
+
+async def test_scope_status_counts_only_allowed_series(client_sg, client_sg_s1):
+    r = data_of(await client_sg.call_tool("stato_archivio", {}))
+    assert r["serie_consentite"] == ["SG"]
+    assert r["atti"] == 3
+    assert r["atti_per_fonte"] == {"gu": 3}
+    assert sum(r["numeri"].values()) == 1
+    assert_no_leak(r)
+    r = data_of(await client_sg_s1.call_tool("stato_archivio", {}))
+    assert r["serie_consentite"] == ["SG", "S1"]
+    assert r["atti"] == 4
+
+
+def test_parse_serie():
+    assert remoto.parse_serie("SG") == [Serie.SG]
+    assert remoto.parse_serie(" sg , S1,SG") == [Serie.SG, Serie.S1]
+    for bad in ("", " , ", "SG,XX"):
+        with pytest.raises(ValueError):
+            remoto.parse_serie(bad)
+
+
+def test_cli_rejects_invalid_serie(db_misto, capsys):
+    assert remoto.main(["--archivio", str(db_misto), "--serie", "ZZ"]) == 2
+    assert "--serie" in capsys.readouterr().out
